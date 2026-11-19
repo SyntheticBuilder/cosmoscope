@@ -39,7 +39,7 @@ test('lightYears', () => {
 test('planetSubtitle', () => {
   assert.equal(planetSubtitle(full), '1.2× Earth · 6-hour year · 66 light-years');
   assert.equal(planetSubtitle({ pl_orbper: 10 }), '10-day year');
-  assert.equal(planetSubtitle({ pl_orbper: 730 }), '2-year year'.replace('2-year year', '2-year year'));
+  assert.equal(planetSubtitle({ pl_orbper: 730 }), '2-year orbit');
   assert.equal(planetSubtitle({ pl_name: 'x' }), '');
 });
 
@@ -71,8 +71,9 @@ test('planetStory strips markup, temperature and multi-planet', () => {
   assert.ok(s.facts.every((f) => !f.includes('<')));
   assert.ok(s.facts.includes('Discovered by X'));
   assert.ok(s.facts.includes('About 27 °C'));
-  assert.ok(s.facts.includes("About 5× Earth's mass".replace('5×', '5.0×')));
+  assert.ok(s.facts.includes("About 5× Earth's mass"));
   assert.ok(s.facts.some((f) => /3 planets/.test(f)));
+  assert.ok(s.facts.includes('A year there lasts about 6 hours'));
 });
 
 test('escapeHTML', () => assert.equal(escapeHTML('<a>&'), '&lt;a&gt;&amp;'));

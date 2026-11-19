@@ -37,10 +37,18 @@ export function lightYears(p) {
   return d === null ? null : d * LY_PER_PC;
 }
 
+function yearParts(days) {
+  if (days < 2) return [Math.round(days * 24), 'hour'];
+  if (days < 730) return [Math.round(days), 'day'];
+  return [dec1(days / 365.25), 'year'];
+}
 function yearText(days) {
-  if (days < 2) return `${Math.round(days * 24)}-hour year`;
-  if (days < 730) return `${Math.round(days)}-day year`;
-  return `${dec1(days / 365.25)}-year year`;
+  const [n, u] = yearParts(days);
+  return u === 'year' ? `${n}-year orbit` : `${n}-${u} year`;
+}
+function yearFact(days) {
+  const [n, u] = yearParts(days);
+  return `A year there lasts about ${n} ${u}${Number(n) === 1 ? '' : 's'}`;
 }
 
 export function planetSubtitle(p) {
@@ -75,7 +83,7 @@ export function planetStory(p) {
   if (pub) facts.push(`Discovery published ${pub}`);
   if (num(p.pl_rade) !== null) facts.push(`About ${dec1(p.pl_rade)}× Earth's width`);
   if (num(p.pl_bmasse) !== null) facts.push(`About ${dec1(p.pl_bmasse)}× Earth's mass`);
-  if (num(p.pl_orbper) !== null) facts.push(`A year lasts ${yearText(p.pl_orbper).replace(/-year year$/, ' years').replace(/-(\w+) year$/, ' $1s')}`);
+  if (num(p.pl_orbper) !== null) facts.push(yearFact(p.pl_orbper));
   if (num(p.pl_eqt) !== null) facts.push(`About ${Math.round(p.pl_eqt - 273)} °C`);
   const method = stripTags(p.discoverymethod);
   if (method) facts.push(`Found using the ${method} method`);
