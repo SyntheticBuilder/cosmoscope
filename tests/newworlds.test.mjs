@@ -70,7 +70,7 @@ test('planetStory strips markup, temperature and multi-planet', () => {
   const s = planetStory({ ...full, disc_facility: '<b>X</b>', pl_eqt: 300, sy_pnum: 3, pl_bmasse: 5 });
   assert.ok(s.facts.every((f) => !f.includes('<')));
   assert.ok(s.facts.includes('Discovered by X'));
-  assert.ok(s.facts.includes('About 27 °C'));
+  assert.ok(s.facts.includes('Estimated temperature from starlight: about 27 °C'));
   assert.ok(s.facts.includes("About 5× Earth's mass"));
   assert.ok(s.facts.some((f) => /3 planets/.test(f)));
   assert.ok(s.facts.includes('A year there lasts about 6 hours'));
@@ -84,4 +84,18 @@ test('teffToRGB', () => {
   assert.ok(cool[0] > cool[2]);
   assert.ok(hot[2] >= hot[0]);
   for (const v of [...cool, ...hot]) assert.ok(v >= 0 && v <= 1);
+});
+
+test('planetStory minimum mass from Msini', () => {
+  assert.ok(planetStory({ ...full, pl_bmasse: 5, pl_bmassprov: 'Msini' }).facts.includes("At least 5× Earth's mass"));
+  assert.ok(planetStory({ ...full, pl_bmasse: 5, pl_bmassprov: 'msini' }).facts.includes("At least 5× Earth's mass"));
+  assert.ok(planetStory({ ...full, pl_bmasse: 5, pl_bmassprov: 'Mass' }).facts.includes("About 5× Earth's mass"));
+});
+
+test('thousands separators on distance and temperature', () => {
+  const far = { ...full, sy_dist: 7850, pl_eqt: 1500 + 273 };
+  const s = planetStory(far);
+  assert.equal(s.sub, 'Planet · 25,603 light-years');
+  assert.ok(s.facts.includes('Estimated temperature from starlight: about 1,500 °C'));
+  assert.equal(planetSubtitle(far), '1.2× Earth · 6-hour year · 25,603 light-years');
 });

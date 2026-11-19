@@ -9,6 +9,8 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const stripTags = (s) => (typeof s === 'string' ? s.replace(/<[^>]*>/g, '').trim() : '');
 // One decimal, dropping a trailing ".0".
 const dec1 = (n) => String(Math.round(n * 10) / 10);
+// Whole number with locale-independent thousands grouping ("25,603").
+const whole = (n) => Math.round(n).toLocaleString('en-US');
 
 export function escapeHTML(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -56,7 +58,7 @@ export function planetSubtitle(p) {
   if (num(p.pl_rade) !== null) parts.push(`${dec1(p.pl_rade)}× Earth`);
   if (num(p.pl_orbper) !== null) parts.push(yearText(p.pl_orbper));
   const ly = lightYears(p);
-  if (ly !== null) parts.push(`${Math.round(ly)} light-years`);
+  if (ly !== null) parts.push(`${whole(ly)} light-years`);
   return parts.join(' · ');
 }
 
@@ -73,7 +75,7 @@ function monthYear(pub) {
 
 export function planetStory(p) {
   const ly = lightYears(p);
-  const sub = `Planet · ${ly === null ? 'distance not measured' : `${Math.round(ly)} light-years`}`;
+  const sub = `Planet · ${ly === null ? 'distance not measured' : `${whole(ly)} light-years`}`;
   const rel = longDate(p.first_release);
   const hook = rel ? `Added to NASA's confirmed planets on ${rel}.` : 'Newly added to NASA\'s confirmed planets.';
   const facts = [];
@@ -82,9 +84,13 @@ export function planetStory(p) {
   const pub = monthYear(stripTags(p.disc_pubdate));
   if (pub) facts.push(`Discovery published ${pub}`);
   if (num(p.pl_rade) !== null) facts.push(`About ${dec1(p.pl_rade)}× Earth's width`);
-  if (num(p.pl_bmasse) !== null) facts.push(`About ${dec1(p.pl_bmasse)}× Earth's mass`);
+  if (num(p.pl_bmasse) !== null) {
+    // Radial-velocity masses (Msini) are lower limits: the orbit's tilt is unknown.
+    const atLeast = /msini/i.test(String(p.pl_bmassprov || ''));
+    facts.push(`${atLeast ? 'At least' : 'About'} ${dec1(p.pl_bmasse)}× Earth's mass`);
+  }
   if (num(p.pl_orbper) !== null) facts.push(yearFact(p.pl_orbper));
-  if (num(p.pl_eqt) !== null) facts.push(`About ${Math.round(p.pl_eqt - 273)} °C`);
+  if (num(p.pl_eqt) !== null) facts.push(`Estimated temperature from starlight: about ${whole(p.pl_eqt - 273)} °C`);
   const method = stripTags(p.discoverymethod);
   if (method) facts.push(`Found using the ${method} method`);
   if (num(p.sy_pnum) !== null && p.sy_pnum > 1) facts.push(`${p.sy_pnum} planets in this system`);
