@@ -1064,7 +1064,7 @@ document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => {
   if (settings.view === 'galaxy' && time.speedIdx < 4) setSpeed(5);
 });
 // settings sheet
-$('#settingsBtn').onclick = () => $('#sheet').classList.toggle('open');
+$('#settingsBtn').onclick = () => { $('#newList').classList.remove('open'); $('#sheet').classList.toggle('open'); };
 $('#sheetClose').onclick = () => $('#sheet').classList.remove('open');
 const bindRange = (id, key, fmt) => { const el = $(id); const out = $(id + 'Out'); const upd = () => { settings[key] = parseFloat(el.value); out.textContent = fmt(settings[key]); }; el.oninput = upd; upd(); };
 bindRange('#trailLen', 'trailLen', v => v < 0.35 ? 'Short' : v < 0.75 ? 'Medium' : 'Long');
@@ -1074,7 +1074,7 @@ $('#optLabels').onchange = e => settings.labels = e.target.checked;
 $('#optOrbits').onchange = e => settings.orbits = e.target.checked;
 $('#optAuto').onchange = e => { settings.autoSpiral = e.target.checked; $('#sunSpeed').disabled = settings.autoSpiral; };
 $('#sunSpeed').disabled = true;
-$('#aboutBtn').onclick = () => { $('#about').classList.add('open'); $('#sheet').classList.remove('open'); };
+$('#aboutBtn').onclick = () => { $('#about').classList.add('open'); $('#sheet').classList.remove('open'); $('#newList').classList.remove('open'); };
 $('#aboutClose').onclick = () => $('#about').classList.remove('open');
 
 // toast
@@ -1110,7 +1110,13 @@ $('#cardNext').onclick = () => { if (tour) tourStep(); else startTour(); };
 const NW_FEED_KEY = 'cosmo.newPlanets', NW_SEEN_KEY = 'cosmo.lastSeenBatch';
 const nwGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const nwSet = (k, v) => { try { localStorage.setItem(k, v); } catch { } };
-const newWorlds = { planets: [], hosts: [], noteOn: false, ringMat: null };
+const newWorlds = { planets: [], hosts: [], noteOn: false, ringMat: null, userActed: false };
+// Any input since load means the visitor has started exploring: never hijack their camera.
+for (const ev of ['pointerdown', 'wheel', 'keydown']) addEventListener(ev, () => { newWorlds.userActed = true; }, { capture: true, passive: true });
+const nwReducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
+// The automatic fly-in may only start from the untouched opening shot.
+const nwIdleAtStart = () => cam.focusId === 'earth' && !cam.anim && !newWorlds.userActed && !card.classList.contains('open')
+  && !['#sheet', '#about', '#newList'].some(sel => $(sel)?.classList.contains('open'));
 const NW_RING_FRAG = `
   uniform vec3 uColor; uniform float uOpacity;
   #include <logdepthbuf_pars_fragment>
@@ -1213,9 +1219,11 @@ function startNewFlyIn(newest) {
   const target = closest(newWorlds.planets.filter(p => p.first_release === newest)) || closest(newWorlds.planets);
   if (!target) return;
   toast('New world confirmed');
+  if (nwReducedMotion()) return; // caption only: no automatic camera flight
   flyTo('new:' + target.pl_name);
   const anim = cam.anim;
-  const cancel = () => {
+  const cancel = e => {
+    if (e.target instanceof Node && card.contains(e.target)) return; // More / Listen / close on the card are not "stop"
     removeEventListener('pointerdown', cancel, true); removeEventListener('wheel', cancel, true); removeEventListener('keydown', cancel, true);
     if (!anim || cam.anim !== anim) return; // flight already finished or replaced
     // stop right here: hold the current view point instead of snapping on to the planet
@@ -1242,7 +1250,8 @@ async function initNewWorlds(starsReady) {
     $('#newClose').onclick = () => $('#newList').classList.remove('open');
     await introGone;
     const newest = newestRelease(newWorlds.planets);
-    if (shouldFlyIn(newest, nwGet(NW_SEEN_KEY), !!tour)) { nwSet(NW_SEEN_KEY, newest); startNewFlyIn(newest); }
+    // If the visitor is already exploring, leave the batch unseen so the fly-in happens next visit.
+    if (shouldFlyIn(newest, nwGet(NW_SEEN_KEY), !!tour) && nwIdleAtStart()) { nwSet(NW_SEEN_KEY, newest); startNewFlyIn(newest); }
   } catch { /* the feed is optional: stay silent */ }
 }
 
