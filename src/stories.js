@@ -186,7 +186,7 @@ export const STORIES = {
     hook: 'The wobble that changed astronomy.',
     facts: [
       'In 1995 Michel Mayor and Didier Queloz spotted a tiny back-and-forth wobble in this Sun-like star, caused by a planet tugging on it.',
-      'The planet is about half Jupiter’s mass and whips around every 4.2 days, far closer than Mercury is to our Sun: the first “hot Jupiter.”',
+      'The planet has at least about half Jupiter’s mass and whips around every 4.2 days, far closer than Mercury is to our Sun: the first “hot Jupiter.”',
       'It was the first planet found around a Sun-like star, and the discovery won the 2019 Nobel Prize in Physics.',
     ],
     source: 'NASA Exoplanet Archive; Mayor & Queloz 1995 (Nature)',
