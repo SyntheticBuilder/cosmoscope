@@ -400,14 +400,15 @@ function makeStarSystem(def) {
   for (const s of def.bodies) {
     const isStar = !!s.star;
     const mesh = new THREE.Mesh(sphereGeo(s.r, 40), isStar ? starMaterial(s.color) : new THREE.MeshLambertMaterial({ color: s.color, emissive: new THREE.Color(s.color).multiplyScalar(0.12) }));
-    const marker = makeMarker(s.color, (s.marker || (isStar ? 16 : 7)) * (isStar ? 1.7 : 1));
+    const marker = makeMarker(s.markerColor || s.color, (s.marker || (isStar ? 16 : 7)) * (isStar ? 1.7 : 1));
     const holder = new THREE.Group(); holder.add(mesh, marker); group.add(holder);
     let relFn;
     if (s.binary) { const k = s.binary.k; const base = keplerRel(s.binary.a, s.binary.e, s.binary.P, s.binary.phase || 0, e1, e2); relFn = (t, o) => base(t, o).multiplyScalar(k); }
     else if (s.orbit) relFn = keplerRel(s.orbit.a, s.orbit.e || 0, s.orbit.P, s.orbit.phase || 0, e1, e2);
+    else if (s.posFn) relFn = s.posFn; // custom path (e.g. hierarchical triples, per-body orbit planes)
     else relFn = (t, o) => o.set(0, 0, 0);
     const b = { id: def.id + ':' + s.name, name: s.name, color: s.color, radius: s.r, mesh, holder, marker, isStar,
-      P: s.binary ? s.binary.P : (s.orbit ? s.orbit.P : 0), orbitR: s.binary ? s.binary.a * Math.abs(s.binary.k) * 1.5 : (s.orbit ? s.orbit.a : 0), posAt: relFn, pos: V() };
+      P: s.binary ? s.binary.P : (s.orbit ? s.orbit.P : (s.P || 0)), orbitR: s.binary ? s.binary.a * Math.abs(s.binary.k) * 1.5 : (s.orbit ? s.orbit.a : (s.orbitR || 0)), posAt: relFn, pos: V() };
     sys.bodies.push(b);
   }
   systems.push(sys);
@@ -456,10 +457,173 @@ function initStorySystems() {
       bodies: [{ name: 'Betelgeuse', star: true, r: 750 * RSUN_AU, color: '#ff8a4a', marker: 30 }] });
     hide(be[0]);
   }
+  defs.push(...moreStoryDefs({ findStar, starPos, starVel, hide }));
   for (const d of defs) {
     const sys = makeStarSystem(d);
-    focusables[d.id] = { name: d.name, getPos: o => o.copy(sys.hostPos), radius: 0.02, story: d.story, defaultDist: d.defaultDist, sys };
+    focusables[d.id] = { name: d.name, getPos: d.focusFn ? o => d.focusFn(simDays(), o).add(sys.hostPos) : o => o.copy(sys.hostPos), radius: 0.02, story: d.story, defaultDist: d.defaultDist, sys };
+    d.after?.(sys);
   }
+  addMovingStarStops();
+  addOrionNebula();
+}
+
+// ── More story stops (Nov 2026). Numbers from the sources named on each card in stories.js. ──
+const MJ_MSUN = 1 / 1047.57, RJ_AU = 71492 / AU_KM, RE_AU = 6371 / AU_KM;
+// position function for one body on its own orbit plane: k scales the relative orbit (barycentric share)
+function orbitFn(a, e, P, phase, normal, k = 1) {
+  const [e1, e2] = planeBasis(normal); const f = keplerRel(a, e, P, phase, e1, e2);
+  return (t, o) => f(t, o).multiplyScalar(k);
+}
+// orbital phase (0–1, 0 = pericentre) right now, from a pericentre epoch in decimal years
+const phaseNow = (periYear, Pyears) => { const y = 1970 + Date.now() / (DAY_MS * YEAR_D); return (((y - periYear) / Pyears) % 1 + 1) % 1; };
+// brightest-enough HYG star closest to a sky direction (for stars without a proper name in our list)
+function nearestStar(raDeg, decDeg, maxSepDeg = 0.2, dMin = 0, dMax = 1e9) {
+  const dir = radec(raDeg, decDeg); const cosMax = Math.cos(maxSepDeg * deg); let best = -1, bestDot = cosMax;
+  const b = starData.buf;
+  for (let i = 0; i < starData.N; i++) {
+    const x = b[i * 8], y = b[i * 8 + 1], z = b[i * 8 + 2]; const d = Math.hypot(x, y, z);
+    if (d < dMin || d > dMax || d === 0) continue;
+    const dot = (x * dir.x + y * dir.y + z * dir.z) / d;
+    if (dot > bestDot) { bestDot = dot; best = i; }
+  }
+  return best;
+}
+function moreStoryDefs({ findStar, starPos, starVel, hide }) {
+  const defs = [];
+  const edgeOn = pos => new THREE.Vector3().crossVectors(pos.clone().normalize(), V(0, 0, 1)).normalize(); // orbit seen edge-on from Earth
+  // Proxima Centauri b & d (NASA Exoplanet Archive default set: Suárez Mascareño et al. 2025)
+  const px = findStar('Proxima Centauri');
+  if (px) {
+    defs.push({ id: 'proxima', story: 'proxima', name: 'Proxima Centauri', pos: starPos(px[0]), vHelio: starVel(px[0]), normal: V(0.2, 0.9, 0.35), defaultDist: 0.15,
+      bodies: [{ name: 'Proxima Centauri', star: true, r: 0.141 * RSUN_AU, color: '#ff6a3d', marker: 18 },
+        { name: 'Proxima d', r: RE_AU * 0.65, color: '#f5b48a', marker: 5, orbit: { a: 0.02881, P: 5.12338, phase: 0.6 } },
+        { name: 'Proxima b', r: RE_AU, color: '#8fd0ff', marker: 7, orbit: { a: 0.04848, P: 11.18465, phase: 0.1 } }] });
+    hide(px[0]);
+  }
+  // 51 Pegasi b (archive: P 4.2307966 d, a 0.052 AU, M sin i 0.464 MJ; star 1.07 Msun, 1.19 Rsun). Star wobble ×300.
+  const pg = findStar('Helvetios');
+  if (pg) {
+    const mS = 1.07, mP = 0.464 * MJ_MSUN, WOBBLE = 300;
+    const bin = { a: 0.052, e: 0, P: 4.2307966 };
+    defs.push({ id: 'peg51', story: 'peg51', name: '51 Pegasi', pos: starPos(pg[0]), vHelio: starVel(pg[0]), normal: V(-0.3, 0.4, 0.86), defaultDist: 0.16,
+      bodies: [{ name: '51 Pegasi', star: true, r: 1.19 * RSUN_AU, color: '#fff0c8', marker: 18, binary: { ...bin, k: -(mP / (mS + mP)) * WOBBLE } },
+        { name: '51 Pegasi b', r: RJ_AU, color: '#ffb36b', marker: 8, binary: { ...bin, k: mS / (mS + mP) } }] });
+    hide(pg[0]);
+  }
+  // Kepler-16 (Doyle et al. 2011; archive distance 75.0852 pc) – not in HYG (too faint). Transiting, so edge-on.
+  {
+    const pos = radec(289.0757, 51.7575, 75.0852 * PC_AU); const n = edgeOn(pos);
+    const mA = 0.6897, mB = 0.20255, M = mA + mB; const bin = { a: 0.22431, e: 0.15944, P: 41.07922 };
+    defs.push({ id: 'kepler16', story: 'kepler16', name: 'Kepler-16', pos, normal: n, defaultDist: 2.2,
+      bodies: [{ name: 'Kepler-16 A', star: true, r: 0.6489 * RSUN_AU, color: '#ffc27a', marker: 16, binary: { ...bin, k: -mB / M } },
+        { name: 'Kepler-16 B', star: true, r: 0.22623 * RSUN_AU, color: '#ff7a4a', marker: 11, binary: { ...bin, k: mA / M } },
+        { name: 'Kepler-16 b', r: 0.7538 * RJ_AU, color: '#d9c7a0', marker: 8, orbit: { a: 0.7048, e: 0.0069, P: 228.776, phase: 0.3 } }] });
+  }
+  // Algol A–B (P 2.867328 d, a 2.15 mas) + C (P 680.168 d, a 93.43 mas, e 0.227), parallax 34.7 mas; mutual inclination 90.2° (Baron et al. 2012)
+  const al = findStar('Algol');
+  if (al) {
+    const pos = starPos(al[0]); const los = pos.clone().normalize();
+    const nIn = edgeOn(pos), nOut = new THREE.Vector3().crossVectors(los, nIn).normalize(); // both edge-on, 90° apart
+    const plx = 34.7, aIn = 2.15 / plx, aOut = 93.43 / plx;
+    const mA = 3.17, mB = 0.70, mC = 1.76, mAB = mA + mB, M = mAB + mC;
+    const inner = orbitFn(aIn, 0, 2.867328, 0, nIn), outer = orbitFn(aOut, 0.227, 680.168, 0.4, nOut);
+    const tmpO = V();
+    const ab = (t, o, k) => { inner(t, o).multiplyScalar(k); return o.addScaledVector(outer(t, tmpO), -mC / M); };
+    defs.push({ id: 'algol', story: 'algol', name: 'Algol', pos, vHelio: starVel(al[0]), normal: nIn, defaultDist: 0.4,
+      focusFn: (t, o) => outer(t, o).multiplyScalar(-mC / M), // follow the eclipsing pair; zoom out to see C
+      bodies: [{ name: 'Algol A', star: true, r: 2.73 * RSUN_AU, color: '#c4d6ff', marker: 18, posFn: (t, o) => ab(t, o, -mB / mAB), P: 2.867328, orbitR: aIn * 0.3 },
+        { name: 'Algol B', star: true, r: 3.48 * RSUN_AU, color: '#ffbf80', marker: 12, posFn: (t, o) => ab(t, o, mA / mAB), P: 2.867328, orbitR: aIn },
+        { name: 'Algol C', star: true, r: 1.73 * RSUN_AU, color: '#fff3dc', marker: 12, posFn: (t, o) => outer(t, o).multiplyScalar(mAB / M), P: 680.168, orbitR: aOut * mAB / M }] });
+    hide(al[0]);
+  }
+  // Polaris Aa–Ab (Evans et al. 2024: P 29.416 yr, a 129.55 mas at 136.90 pc, e 0.6354, T 2016.831; Aa 5.13 Msun, 46.27 Rsun; Ab 1.316 Msun)
+  const po = findStar('Polaris');
+  if (po) {
+    const a = 0.12955 * 136.90, mA = 5.13, mB = 1.316, M = mA + mB; const bin = { a, e: 0.6354, P: 29.416 * YEAR_D, phase: phaseNow(2016.831, 29.416) };
+    defs.push({ id: 'polaris', story: 'polaris', name: 'Polaris', pos: starPos(po[0]), vHelio: starVel(po[0]), normal: V(0.5, -0.3, 0.8), defaultDist: 60,
+      bodies: [{ name: 'Polaris Aa', star: true, r: 46.27 * RSUN_AU, color: '#fff1d0', marker: 22, binary: { ...bin, k: -mB / M } },
+        { name: 'Polaris Ab', star: true, r: 1.2 * RSUN_AU, color: '#fff8ea', marker: 10, binary: { ...bin, k: mA / M } }] });
+    hide(po[0]);
+  }
+  // Mira + its 13-light-year ultraviolet tail (NASA/JPL GALEX). Tail drawn behind the star's catalog motion.
+  const mi = findStar('Mira');
+  if (mi) {
+    const vel = starVel(mi[0]);
+    defs.push({ id: 'mira', story: 'mira', name: 'Mira', pos: starPos(mi[0]), vHelio: vel, normal: V(0, 0, 1), defaultDist: 1.4e6,
+      bodies: [{ name: 'Mira', star: true, r: 350 * RSUN_AU, color: '#ff7a45', marker: 22 }],
+      after: sys => sys.group.add(makeMiraTail(vel.lengthSq() ? vel.clone().normalize() : V(1, 0, 0))) });
+    hide(mi[0]);
+  }
+  // Sagittarius A* + S2 (GRAVITY 2020: a 125.058 mas at R0 8246.7 pc, e 0.884649, P 16.0455 yr, t_peri 2018.379, M 4.261e6 Msun)
+  {
+    const aS2 = 0.125058 * 8246.7, rs = 2 * 6.674e-11 * 4.261e6 * 1.989e30 / (299792458 ** 2) / 1000 / AU_KM; // Schwarzschild radius (AU)
+    defs.push({ id: 'sgra', story: 'sgra', name: 'Sagittarius A*', pos: GC_POS.clone(), vHelio: L90.clone().multiplyScalar(-SUN_GAL_KMS * KMS_TO_AUD), // at rest in the galaxy frame
+      normal: V(0.35, -0.6, 0.72), defaultDist: 4200,
+      bodies: [{ name: 'Sagittarius A*', r: rs, color: '#000000', markerColor: '#ffae66', marker: 18 },
+        { name: 'S2', star: true, r: 0.05, color: '#d6e4ff', marker: 12, orbit: { a: aS2, e: 0.884649, P: 16.0455 * YEAR_D, phase: phaseNow(2018.379, 16.0455) } }] });
+  }
+  return defs;
+}
+function makeMiraTail(dir) {
+  // ~13 ly long, widening behind the star; a brighter bow at the front
+  const r = rng(77), n = isMobile ? 1800 : 3000, L = 13 * LY_AU;
+  const [u, w] = planeBasis(dir);
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), sz = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const s = Math.pow(r(), 0.7); const along = -s * L; const width = L * (0.012 + 0.05 * s);
+    const a = gauss(r) * width, b = gauss(r) * width;
+    pos[i * 3] = dir.x * along + u.x * a + w.x * b; pos[i * 3 + 1] = dir.y * along + u.y * a + w.y * b; pos[i * 3 + 2] = dir.z * along + u.z * a + w.z * b;
+    const f = (1 - s) * 0.7 + 0.3; col[i * 3] = 0.55 * f; col[i * 3 + 1] = 0.7 * f; col[i * 3 + 2] = 1.0 * f;
+    sz[i] = L * 0.018 * (0.6 + r());
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('size', new THREE.BufferAttribute(sz, 1));
+  const p = new THREE.Points(g, pointMaterial({ max: 14, min: 1.1 })); p.frustumCulled = false;
+  p.onBeforeRender = () => { p.material.uniforms.uScale.value = pxPerUnit; p.material.uniforms.uOpacity.value = 0.65; };
+  return p;
+}
+// Barnard's Star and Gliese 710: their story *is* their motion, so the stop follows the catalog star as time runs.
+function addMovingStarStops() {
+  const stops = [
+    { id: 'barnard', idx: (starData.names.find(n => n[1] === 'Barnard\'s Star') || [])[0] },
+    { id: 'gliese710', idx: nearestStar(274.9624, -1.9386, 0.1, 15, 25) }, // Gaia DR3: 19 pc
+  ];
+  // Gliese 710's HYG (Hipparcos-era) motion misses the Sun by ~1.3 ly. Replace it with the Gaia DR3 flyby solution
+  // (parallax 52.3963 mas → 19.085 pc; closest approach 0.052 pc in ~1.29 Myr, de la Fuente Marcos 2022): a straight path
+  // from today's position to a point 0.052 pc from the Sun, offset along its catalog proper-motion direction.
+  const g = stops[1].idx;
+  if (g >= 0) {
+    const b = starData.buf; const p0 = V(b[g * 8], b[g * 8 + 1], b[g * 8 + 2]).setLength(1000 / 52.3963);
+    const pm = V(b[g * 8 + 3], b[g * 8 + 4], b[g * 8 + 5]); pm.addScaledVector(p0, -pm.dot(p0) / p0.lengthSq());
+    const q = (pm.lengthSq() ? pm : planeBasis(p0)[0]).setLength(0.052);
+    const v = q.clone().sub(p0).divideScalar(1.29e6);
+    b[g * 8] = p0.x; b[g * 8 + 1] = p0.y; b[g * 8 + 2] = p0.z; b[g * 8 + 3] = v.x; b[g * 8 + 4] = v.y; b[g * 8 + 5] = v.z;
+  }
+  for (const { id, idx } of stops) {
+    if (idx === undefined || idx < 0) continue;
+    const p = V(), v = V();
+    focusables[id] = { name: STORIES[id].title, story: id, radius: 0.01, defaultDist: 40, starIdx: idx,
+      getPos: o => { p.set(starData.pos[idx * 3], starData.pos[idx * 3 + 1], starData.pos[idx * 3 + 2]); v.set(starData.vel[idx * 3], starData.vel[idx * 3 + 1], starData.vel[idx * 3 + 2]); return o.copy(p).addScaledVector(v, simYears()); } };
+  }
+}
+// Orion Nebula (illustration) at RA 83.822°, Dec −5.391°, ~414 pc (Menten et al. 2007)
+function addOrionNebula() {
+  const center = radec(83.822, -5.391, 414 * PC_AU);
+  const grp = new THREE.Group(); grp.position.copy(center); scene.add(grp);
+  const r = rng(42), n = isMobile ? 2200 : 3600, R = 12 * LY_AU;
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), sz = new Float32Array(n);
+  const pal = [[1, 0.42, 0.55], [0.45, 0.85, 0.9], [1, 0.75, 0.5], [0.7, 0.55, 1]];
+  for (let i = 0; i < n; i++) {
+    const core = r() < 0.25; const s = core ? 0.15 : 0.55;
+    let x = gauss(r) * R * s, y = gauss(r) * R * s * 0.8, z = gauss(r) * R * s * 0.6;
+    const sw = Math.atan2(y, x) + Math.hypot(x, y) / R * 1.4; const h = Math.hypot(x, y); x = h * Math.cos(sw); y = h * Math.sin(sw); // gentle swirl
+    pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
+    const c = core ? [1, 0.95, 0.9] : pal[(r() * pal.length) | 0]; const f = core ? 0.35 : 0.3 + r() * 0.3;
+    col[i * 3] = c[0] * f; col[i * 3 + 1] = c[1] * f; col[i * 3 + 2] = c[2] * f; sz[i] = R * (core ? 0.03 : 0.12) * (0.5 + r());
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('size', new THREE.BufferAttribute(sz, 1));
+  const cloud = new THREE.Points(g, pointMaterial({ max: 22, min: 1.0 })); cloud.frustumCulled = false; grp.add(cloud);
+  cloud.onBeforeRender = () => { cloud.material.uniforms.uScale.value = pxPerUnit; cloud.material.uniforms.uOpacity.value = 0.38; };
+  focusables.orion = { name: 'Orion Nebula', getPos: o => o.copy(center), radius: R * 0.2, story: 'orion', defaultDist: 4.2e6 };
 }
 
 // ───────────────────────── trails (Line2) ─────────────────────────
@@ -887,13 +1051,16 @@ for (const b of solar.bodies) {
     onTap: () => flyTo(b.id) });
 }
 function addStoryLabels() {
-  for (const id of ['alphacen', 'sirius', 'trappist', 'betelgeuse']) {
+  for (const id of ['alphacen', 'sirius', 'trappist', 'betelgeuse', 'proxima', 'barnard', 'gliese710', 'peg51', 'kepler16', 'algol', 'polaris', 'mira', 'orion']) {
     const f = focusables[id]; if (!f) continue; const s = STORIES[f.story];
     addLabel({ text: s.title.toUpperCase(), sub: s.sub, cls: 'story', prio: 4,
       getPos: o => f.getPos(o),
       visible: () => { const d = camDistTo(f.getPos(tmpL)); const L = Math.log10(d); return L > 2.2 && L < 8.6 && camLogSun > 4.2; },
       onTap: () => flyTo(id) });
   }
+  const sg = focusables.sgra;
+  if (sg) addLabel({ text: STORIES.sgra.title.toUpperCase(), sub: 'black hole at the center', cls: 'story', prio: 5.5, getPos: o => sg.getPos(o),
+    visible: () => { const L = Math.log10(camDistTo(sg.getPos(tmpL))); return L > 2.2 && L < 9.4; }, onTap: () => flyTo('sgra') });
 }
 const tmpL = V();
 let camLogSun = 0;
@@ -1086,8 +1253,8 @@ function hideHint() { if (!hinted) { hinted = true; $('#hint').classList.add('go
 
 // guided tour
 const TOUR = [
-  ['earth', null, 'sun', 0], ['moon', null, 'sun', 3], ['sun', 9, 'galaxy', 6], ['alphacen', null, 'sun', 7], ['sirius', null, 'sun', 7],
-  ['trappist', null, 'sun', 3], ['betelgeuse', null, 'sun', 0], ['galaxy', null, 'sun', 0], ['andromeda', null, 'sun', 0], ['universe', null, 'sun', 0],
+  ['earth', null, 'sun', 0], ['moon', null, 'sun', 3], ['sun', 9, 'galaxy', 6], ['alphacen', null, 'sun', 7], ['proxima', null, 'sun', 3], ['sirius', null, 'sun', 7],
+  ['trappist', null, 'sun', 3], ['kepler16', null, 'sun', 4], ['betelgeuse', null, 'sun', 0], ['orion', null, 'sun', 0], ['galaxy', null, 'sun', 0], ['sgra', null, 'sun', 6], ['andromeda', null, 'sun', 0], ['universe', null, 'sun', 0],
 ];
 let tour = null;
 $('#tourBtn').onclick = () => { if (tour) stopTour(); else startTour(); };
