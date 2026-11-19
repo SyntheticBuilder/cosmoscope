@@ -17,6 +17,7 @@ Known limits:
 - Milky Way, other galaxies and the cosmic web are illustrations (labeled)
 - The NASA Exoplanet Archive doesn't allow browser requests from other sites (no CORS), so a daily GitHub Action fetches the list into new_planets.json next to the page; the app only reads that file
 - Story-system orbit orientations are illustrative
+- GitHub pauses the daily feed job after 60 days without repo activity — if the feed stops updating, re-enable the workflow in the repo's Actions tab
 
 Next ideas (in order):
 1. Publish the website (GitHub Pages) so the daily feed runs
