@@ -1206,8 +1206,11 @@ function fitNewBtn() {
   const btn = $('#newBtn'); btn.classList.remove('compact');
   if ($('#settingsBtn').getBoundingClientRect().top > $('#tourBtn').getBoundingClientRect().top + 4) btn.classList.add('compact');
 }
-function startNewFlyIn() {
-  const target = newWorlds.planets.filter(nwHasDist).sort((a, b) => a.sy_dist - b.sy_dist)[0];
+function startNewFlyIn(newest) {
+  const closest = list => list.filter(nwHasDist).sort((a, b) => a.sy_dist - b.sy_dist)[0];
+  // Introduce a planet from the batch that triggered the fly-in. If nobody in that batch has a
+  // measured distance, fall back to the closest placed planet overall (the batch is still marked seen).
+  const target = closest(newWorlds.planets.filter(p => p.first_release === newest)) || closest(newWorlds.planets);
   if (!target) return;
   toast('New world confirmed');
   flyTo('new:' + target.pl_name);
@@ -1239,7 +1242,7 @@ async function initNewWorlds(starsReady) {
     $('#newClose').onclick = () => $('#newList').classList.remove('open');
     await introGone;
     const newest = newestRelease(newWorlds.planets);
-    if (shouldFlyIn(newest, nwGet(NW_SEEN_KEY), !!tour)) { nwSet(NW_SEEN_KEY, newest); startNewFlyIn(); }
+    if (shouldFlyIn(newest, nwGet(NW_SEEN_KEY), !!tour)) { nwSet(NW_SEEN_KEY, newest); startNewFlyIn(newest); }
   } catch { /* the feed is optional: stay silent */ }
 }
 
