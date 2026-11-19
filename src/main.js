@@ -7,6 +7,7 @@ import { STORIES } from './stories.js';
 import { inWindow, newestRelease, shouldFlyIn, planetSubtitle, planetStory, teffToRGB, escapeHTML } from './newworlds.mjs';
 import { starCard, distanceFacts, fmtLy, SPECTRAL_HOOKS, HYG_SOURCE } from './catalog.mjs';
 import { initSearch } from './search.js';
+import { segmentPairs, lineStars, meanDirection, perpendicular, constellationStats, constellationCard } from './constellations.mjs';
 
 // ───────────────────────── units & helpers ─────────────────────────
 // Scene unit: 1 AU. Frame: J2000 equatorial (x → vernal equinox, z → celestial north).
@@ -393,6 +394,9 @@ function planeBasis(normal) {
   return [e1, e2];
 }
 let starData = null; // filled after load
+// constellation state (lines, selection); declared early because showCard() touches it
+const CON_VIEW_AU = 300; // the viewpoint sits this far from the Sun
+const con = { list: null, byAbbr: new Map(), loading: null, geo: null, all: null, sel: null, range: null, segIdx: null, selAbbr: null, lastDt: NaN, stats: null, statsRows: null };
 // catalog star index → story focusable id (stars drawn by a story system or followed by a story stop)
 const starOwner = new Map();
 const storyStarIdx = {}; // story id → its main catalog star
@@ -772,7 +776,7 @@ function makeTrail(color, width = 1.6) {
   line.userData.col = new THREE.Color(color);
   return line;
 }
-const settings = { view: 'sun', trailLen: 0.6, trailRange: 0.5, sunSpeed: 0.1, autoSpiral: true, labels: true, orbits: true };
+const settings = { view: 'sun', trailLen: 0.6, trailRange: 0.5, sunSpeed: 0.1, autoSpiral: true, labels: true, orbits: true, conLines: false };
 const tmpA = V(), tmpB = V();
 
 function updateTrails(sys, t, camDistHost) {
@@ -894,6 +898,14 @@ async function loadStars() {
   starTrails = new THREE.LineSegments(tg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   starTrails.frustumCulled = false; scene.add(starTrails);
   starData.pos = pos; starData.vel = vel; starData.col = col; starData.mag = mag;
+  // story stars are hidden from the point field while their story system draws them up close; when that system is
+  // out of sight (far away) they come back as plain points, so e.g. Betelgeuse still shines in Orion seen from home.
+  // Only where the story sits at the catalog position (Cygnus X-1 uses a newer distance, so it stays hidden).
+  for (const [i, owner] of starOwner) {
+    const s = systems.find(x => x.isStory && x.id === owner); if (!s) continue;
+    const p = V(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+    if (p.distanceTo(s.hostPos) < 0.02 * p.length()) (s.hiddenIdx ||= []).push(i);
+  }
   buildStarLabels();
 }
 const MAX_STAR_TRAILS = 420;
@@ -1072,7 +1084,7 @@ const cam = {
 };
 const MIN_LOG = Math.log10(1e-6), MAX_LOG = Math.log10(UNIVERSE_R * 3.2);
 function focusPos(id, out) { const f = focusables[id]; return f ? f.getPos(out) : out.set(0, 0, 0); }
-function flyTo(id, dist, dur, lookFrom) {
+function flyTo(id, dist, dur, lookFrom, up) { // up: optional screen-up direction for lookFrom (default ecliptic north)
   const f = focusables[id]; if (!f) return;
   const fromPos = cam.target.clone(); const toPos = focusPos(id, V());
   const fromLog = cam.logD, toLog = Math.log10(dist ?? f.defaultDist);
@@ -1081,7 +1093,7 @@ function flyTo(id, dist, dur, lookFrom) {
   const bump = Math.max(0, peak - Math.max(fromLog, toLog));
   const span = Math.abs(toLog - fromLog) + bump * 2;
   let toQ = null;
-  if (lookFrom) { const m = new THREE.Matrix4().lookAt(lookFrom.clone().normalize(), V(), ECL_N.clone().cross(lookFrom).lengthSq() > 1e-6 ? ECL_N : V(0, 1, 0)); toQ = new THREE.Quaternion().setFromRotationMatrix(m); }
+  if (lookFrom) { const U = up || ECL_N; const m = new THREE.Matrix4().lookAt(lookFrom.clone().normalize(), V(), U.clone().cross(lookFrom).lengthSq() > 1e-6 ? U : V(0, 1, 0)); toQ = new THREE.Quaternion().setFromRotationMatrix(m); }
   cam.anim = { id, fromPos, fromLog, toLog, bump, t0: performance.now(), dur: dur ?? clamp(1200 + span * 260, 1400, 5200), fromQ: cam.q.clone(), toQ };
   cam.focusId = id;
   showCard(f.story ? (typeof f.story === 'string' ? STORIES[f.story] : f.story) : null, id);
@@ -1322,6 +1334,7 @@ const card = $('#card');
 let cardStoryKey = null, cardFocusId = null;
 function showCard(story, focusId) {
   cardFocusId = focusId;
+  selectConstellation(story?.con || null); // a constellation card draws its lines; any other card clears them
   if (!story) { card.classList.remove('open'); return; }
   cardStoryKey = story;
   $('#cardTitle').textContent = story.isNew ? story.title : story.title.toUpperCase(); // keep planet letters lowercase ("b", not "B")
@@ -1336,7 +1349,7 @@ function showCard(story, focusId) {
   card.classList.add('open'); card.classList.toggle('collapsed', innerWidth < 820); syncMore();
   stopSpeaking();
 }
-$('#cardClose').onclick = () => { card.classList.remove('open'); stopSpeaking(); };
+$('#cardClose').onclick = () => { card.classList.remove('open'); stopSpeaking(); selectConstellation(null); };
 function syncMore() { $('#more').textContent = card.classList.contains('collapsed') ? 'More' : 'Less'; }
 $('#cardGrab').onclick = () => { card.classList.toggle('collapsed'); syncMore(); };
 $('#more').onclick = () => { card.classList.toggle('collapsed'); syncMore(); };
@@ -1366,7 +1379,7 @@ const storyOf = f => f?.story ? (typeof f.story === 'string' ? STORIES[f.story] 
 const searchUI = initSearch({
   // every named place you can fly to (dynamic star:/new:here stops excluded)
   places: () => Object.entries(focusables)
-    .filter(([id, f]) => f.name && !id.startsWith('star:') && id !== 'new:here')
+    .filter(([id, f]) => f.name && !id.startsWith('star:') && !id.startsWith('con:') && id !== 'new:here')
     .map(([id, f]) => {
       const s = storyOf(f); const au = f.getPos(V()).length();
       return { id, name: s?.title || f.name, alias: s?.title && s.title !== f.name ? f.name : '', sub: s?.sub || '', ly: au > 2000 ? au / LY_AU : null, isNew: !!s?.isNew };
@@ -1380,6 +1393,7 @@ const searchUI = initSearch({
   // Read: card only. The camera and its focus stay where they are.
   readPlace: id => { const s = storyOf(focusables[id]); if (s) showCard(s, cam.focusId); },
   readStar: idx => { const owner = starOwner.get(idx); showCard(owner ? storyOf(focusables[owner]) : starStory(idx), cam.focusId); },
+  loadExtras: () => { loadConstellations().catch(() => { }); }, // constellations come with the star names
   closeOthers: () => { stopTour(); for (const sel of ['#sheet', '#about', '#newList']) $(sel).classList.remove('open'); card.classList.remove('open'); stopSpeaking(); },
 });
 function solarLook() { // above the plane of the planets, looking down at ~35°
@@ -1389,6 +1403,88 @@ function solarLook() { // above the plane of the planets, looking down at ~35°
 function galaxyLook() { // from above the disk, tilted a little, with the Sun toward the viewer
   return NGP.clone().multiplyScalar(Math.sin(62 * deg)).addScaledVector(GC_DIR.clone().negate(), Math.cos(62 * deg));
 }
+// ───────────────────────── constellations ─────────────────────────
+// Stick figures from Stellarium's modern sky culture, drawn between the stars' real 3D positions (with proper
+// motion). One shared position buffer: "all 88" (Settings toggle) and the selected one (its card) draw ranges of it.
+// constellations.json loads with the star names (first search open) or when the toggle is switched on.
+function loadConstellations() {
+  if (!con.loading) {
+    con.loading = fetch('constellations.json')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(list => {
+        con.list = list; for (const c of list) con.byAbbr.set(c.abbr, c);
+        searchUI.addExtras(list.flatMap(c => {
+          const e = { key: 'c:' + c.abbr, name: c.name, kind: 'Constellation', sub: c.english && c.english !== c.name ? c.english : '', ly: null, category: 'Constellations',
+            fly: () => { stopTour(); flyToConstellation(c.abbr); }, read: () => showCard(conStory(c), cam.focusId), flyDisabled: () => !starData?.pos };
+          return e.sub ? [e, { ...e, name: c.english, alias: true }] : [e]; // "Great Bear" finds Ursa Major
+        }));
+        return list;
+      })
+      .catch(err => { console.warn('Constellations could not load', err); con.loading = null; throw err; });
+  }
+  return con.loading;
+}
+function conStory(c) {
+  const rows = searchUI.rows(); // HYG rows once the star names are loaded, else null
+  if (rows && con.statsRows !== rows) { con.stats = constellationStats(rows); con.statsRows = rows; }
+  const P = starData?.pos;
+  const lyOf = P ? i => Math.hypot(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]) / LY_AU : null;
+  return constellationCard(c, rows, rows ? con.stats : null, lyOf);
+}
+// From our Solar System, facing the figure with celestial north up. The viewpoint is 300 AU from the Sun, off to
+// the side of the line of sight (toward ecliptic north), so the Sun and planets sit outside the view instead of in
+// the middle of the figure. From the stars' distances (≥ 4 light-years) 300 AU changes nothing you could see.
+function flyToConstellation(abbr) {
+  const c = con.byAbbr.get(abbr); if (!c || !starData?.pos) return;
+  const d = meanDirection(lineStars(c.lines), starData.pos, starData.vel, simYears()); if (!d) return;
+  const fig = V(d[0], d[1], d[2]);
+  const eye = V(...perpendicular(d, [ECL_N.x, ECL_N.y, ECL_N.z])).multiplyScalar(CON_VIEW_AU);
+  // aim a little below the figure's center so it sits above the card (bottom sheet on phones)
+  const north = V(...perpendicular(d, [0, 0, 1])), a = (innerWidth < 820 ? 9 : 2) * deg;
+  const dir = fig.clone().multiplyScalar(Math.cos(a)).addScaledVector(north, -Math.sin(a));
+  const target = eye.clone().addScaledVector(dir, CON_VIEW_AU);
+  const id = 'con:' + abbr;
+  focusables[id] = { name: c.name, getPos: o => o.copy(target), radius: CON_VIEW_AU / 10, defaultDist: CON_VIEW_AU, story: conStory(c) };
+  flyTo(id, CON_VIEW_AU, undefined, dir.clone().negate(), V(0, 0, 1));
+}
+function selectConstellation(abbr) {
+  con.selAbbr = abbr && con.byAbbr.has(abbr) ? abbr : null;
+}
+function buildConGeometry() {
+  if (con.geo || !con.list || !starData?.pos) return;
+  const pairs = []; con.range = new Map();
+  for (const c of con.list) { const p = segmentPairs(c.lines); con.range.set(c.abbr, [pairs.length * 2, p.length * 2]); pairs.push(...p); }
+  con.segIdx = Int32Array.from(pairs.flat());
+  const attr = new THREE.BufferAttribute(new Float32Array(con.segIdx.length * 3), 3);
+  const make = op => {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', attr);
+    const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#86a8ff', transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false }));
+    l.frustumCulled = false; l.visible = false; l.renderOrder = 2; l.userData.op = op; scene.add(l); return l;
+  };
+  con.geo = attr; con.all = make(0.2); con.sel = make(0.5);
+  con.lastDt = NaN;
+}
+function updateConstellations(Lc) {
+  if (!con.geo) { if ((settings.conLines || con.selAbbr) && con.list && starData?.pos) buildConGeometry(); if (!con.geo) return; }
+  const fade = 1 - smooth(8.4, 9.1, Lc); // gone with the star field, well before galaxy views
+  const allOn = settings.conLines && fade > 0.01, selOn = !!con.selAbbr && fade > 0.01;
+  con.all.visible = allOn; con.sel.visible = selOn;
+  if (!allOn && !selOn) return;
+  // move the line ends with the stars only when time has moved enough to matter (half a year)
+  const dt = simYears();
+  if (!(Math.abs(dt - con.lastDt) < 0.5)) {
+    const a = con.geo.array, P = starData.pos, Vl = starData.vel, I = con.segIdx;
+    for (let k = 0; k < I.length; k++) {
+      const i = I[k] * 3, o = k * 3;
+      a[o] = P[i] + Vl[i] * dt; a[o + 1] = P[i + 1] + Vl[i + 1] * dt; a[o + 2] = P[i + 2] + Vl[i + 2] * dt;
+    }
+    con.geo.needsUpdate = true; con.lastDt = dt;
+  }
+  con.all.material.opacity = con.all.userData.op * fade;
+  con.sel.material.opacity = con.sel.userData.op * fade;
+  if (selOn) { const [s, n] = con.range.get(con.selAbbr); con.sel.geometry.setDrawRange(s, n); }
+}
+
 // scale chips
 const CHIPS = [
   ['Earth', () => flyTo('earth')],
@@ -1441,6 +1537,10 @@ bindRange('#trailRange', 'trailRange', v => v < 0.35 ? 'Few stars' : v < 0.75 ? 
 bindRange('#sunSpeed', 'sunSpeed', v => v >= 0.99 ? 'Real speed' : `Slowed ${Math.round(1 / v)}×`);
 $('#optLabels').onchange = e => settings.labels = e.target.checked;
 $('#optOrbits').onchange = e => settings.orbits = e.target.checked;
+$('#optCon').onchange = e => {
+  settings.conLines = e.target.checked;
+  if (settings.conLines) loadConstellations().catch(() => { settings.conLines = false; e.target.checked = false; toast('Constellation lines could not load.'); });
+};
 $('#optAuto').onchange = e => { settings.autoSpiral = e.target.checked; $('#sunSpeed').disabled = settings.autoSpiral; };
 $('#sunSpeed').disabled = true;
 $('#aboutBtn').onclick = () => { searchUI.close(); $('#about').classList.add('open'); $('#sheet').classList.remove('open'); $('#newList').classList.remove('open'); };
@@ -1727,6 +1827,15 @@ function frame(now) {
       sys.group.visible = vis > 0.01;
     }
   }
+  if (starsPoints) { // see loadStars: story stars back as points while their system is not drawn
+    let changed = false;
+    for (const sys of systems) {
+      if (!sys.hiddenIdx || sys.pointOn === !sys.group.visible) continue;
+      sys.pointOn = !sys.group.visible; changed = true;
+      for (const i of sys.hiddenIdx) starData.mag[i] = sys.pointOn ? starData.buf[i * 8 + 6] : 99;
+    }
+    if (changed) starsPoints.geometry.attributes.absmag.needsUpdate = true;
+  }
   const { solarVis } = layerFades(Lc);
   updateNewWorlds(now, Lc);
   // trails
@@ -1745,6 +1854,7 @@ function frame(now) {
     starsPoints.material.uniforms.uPx.value = renderer.getPixelRatio() * 0.75;
   }
   updateStarTrails(cam.logD, cam.target);
+  updateConstellations(Lc);
   // point materials scale
   const pS = pxPerUnit;
   milkyWay.children[0].material.uniforms.uScale.value = pS;

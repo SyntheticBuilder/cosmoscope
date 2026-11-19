@@ -180,6 +180,7 @@ export function initSearch(api) {
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing) { // fly to the top result of what is typed now
+      e.preventDefault(); // focus moves to the search button on close; without this the same Enter "clicks" it and reopens the panel
       clearTimeout(debounce); if (tab !== 'search') setTab('search'); else runSearch();
       const first = list.querySelector('.spRow'); const a = first && actions.get(first.dataset.k);
       if (a && !a.flyDisabled?.()) { close(); a.fly(); }
@@ -256,6 +257,7 @@ export function initSearch(api) {
     panel.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
     setTab(tab);
     loadStars();
+    api.loadExtras?.();
     if (tab === 'search') { input.focus({ preventScroll: true }); input.select(); }
   }
   function close() {
@@ -284,6 +286,7 @@ export function initSearch(api) {
       list.scrollTop = y;
     },
     row: (idx) => (loadState === 'ready' ? index.rows[idx] || null : null),
+    rows: () => (loadState === 'ready' ? index.rows : null),
     // Hook for later features: entries { key, name, kind, sub, ly, category, fly(), read() }.
     addExtras(list) { extraEntries = extraEntries.concat(list); if (isOpen()) { refreshPlaces(); setTab(tab); } },
   };
