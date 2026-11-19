@@ -465,6 +465,7 @@ function initStorySystems() {
   }
   addMovingStarStops();
   addOrionNebula();
+  addReadOnlyStops();
 }
 
 // ── More story stops (Nov 2026). Numbers from the sources named on each card in stories.js. ──
@@ -562,7 +563,137 @@ function moreStoryDefs({ findStar, starPos, starVel, hide }) {
       bodies: [{ name: 'Sagittarius A*', r: rs, color: '#000000', markerColor: '#ffae66', marker: 18 },
         { name: 'S2', star: true, r: 0.05, color: '#d6e4ff', marker: 12, orbit: { a: aS2, e: 0.884649, P: 16.0455 * YEAR_D, phase: phaseNow(2018.379, 16.0455) } }] });
   }
+  defs.push(...readOnlyStoryDefs({ findStar, starPos, starVel, hide }));
   return defs;
+}
+// ── Read-only stops (tap to read; not in the Tour, no narration). Numbers from the sources on each card. ──
+function readOnlyStoryDefs({ findStar, starPos, starVel, hide }) {
+  const defs = [];
+  const hideNear = (ra, dec, sep = 0.05) => { const i = nearestStar(ra, dec, sep); if (i >= 0) hide(i); };
+  // Vega: polar 2.31, equatorial 2.87 Rsun (Peterson et al. 2006); pole points almost at us
+  const ve = findStar('Vega');
+  if (ve) {
+    const pos = starPos(ve[0]);
+    defs.push({ id: 'vega', story: 'vega', name: 'Vega', pos, vHelio: starVel(ve[0]), normal: V(0, 0, 1), defaultDist: 0.16,
+      bodies: [{ name: 'Vega', star: true, r: 2.87 * RSUN_AU, color: '#dfe8ff', marker: 22 }],
+      after: sys => { const m = sys.bodies[0].mesh; m.quaternion.setFromUnitVectors(V(0, 0, 1), pos.clone().normalize()); m.scale.set(1, 1, 2.31 / 2.87); } });
+    hide(ve[0]);
+  }
+  // 61 Cygni A+B (not named in HYG): Izmailov et al. 2021 P 704.9 yr, e 0.435, M 1.286 Msun → a ≈ 86 AU; mass split from Kervella 2008 (0.690 / 0.605)
+  {
+    const iA = nearestStar(316.7246, 38.7494, 0.05, 2, 6);
+    if (iA >= 0) {
+      const mA = 0.690, mB = 0.605, M = mA + mB; const P = 704.9, a = Math.cbrt(1.286 * P * P);
+      const bin = { a, e: 0.435, P: P * YEAR_D, phase: 0.3 };
+      defs.push({ id: 'cyg61', story: 'cyg61', name: '61 Cygni', pos: starPos(iA), vHelio: starVel(iA), normal: V(0.4, 0.3, 0.86), defaultDist: 260,
+        bodies: [{ name: '61 Cygni A', star: true, r: 0.665 * RSUN_AU, color: '#ffc480', marker: 16, binary: { ...bin, k: -mB / M } },
+          { name: '61 Cygni B', star: true, r: 0.595 * RSUN_AU, color: '#ffa860', marker: 14, binary: { ...bin, k: mA / M } }] });
+      hide(iA); hideNear(316.7303, 38.7421);
+    }
+  }
+  // Luhman 16 A+B (not in HYG): RA 162.3149°, Dec −53.3184°, 1.996 pc; a 3.52 AU, e 0.344, P 26.55 yr, 35.4 / 29.4 MJ (HST 2024)
+  {
+    const mA = 35.4, mB = 29.4, M = mA + mB; const bin = { a: 3.52, e: 0.344, P: 26.55 * YEAR_D, phase: 0.2 };
+    defs.push({ id: 'luhman16', story: 'luhman16', name: 'Luhman 16', pos: radec(162.3149, -53.3184, 1.996 * PC_AU), normal: V(-0.3, 0.5, 0.8), defaultDist: 12,
+      bodies: [{ name: 'Luhman 16 A', star: true, r: RJ_AU, color: '#c2523e', marker: 13, binary: { ...bin, k: -mB / M } },
+        { name: 'Luhman 16 B', star: true, r: RJ_AU, color: '#a64a6a', marker: 12, binary: { ...bin, k: mA / M } }] });
+  }
+  // Capella Aa+Ab (Torres et al. 2015): P 104.02128 d, a 0.74272 AU, masses 2.5687 / 2.4828, radii 11.98 / 8.83 Rsun
+  const ca = findStar('Capella');
+  if (ca) {
+    const mA = 2.5687, mB = 2.4828, M = mA + mB; const bin = { a: 0.74272, e: 0, P: 104.02128 };
+    defs.push({ id: 'capella', story: 'capella', name: 'Capella', pos: starPos(ca[0]), vHelio: starVel(ca[0]), normal: V(0.2, -0.4, 0.9), defaultDist: 2.6,
+      bodies: [{ name: 'Capella Aa', star: true, r: 11.98 * RSUN_AU, color: '#ffd98f', marker: 20, binary: { ...bin, k: -mB / M } },
+        { name: 'Capella Ab', star: true, r: 8.83 * RSUN_AU, color: '#fff0c0', marker: 18, binary: { ...bin, k: mA / M } }] });
+    hide(ca[0]);
+  }
+  // Cygnus X-1 (Miller-Jones et al. 2021): 2.22 kpc, BH 21.2 Msun, O star 40.6 Msun / 22.3 Rsun, a 0.244 AU, e 0.019, P 5.6 d
+  {
+    const pos = radec(299.5903, 35.2016, 2220 * PC_AU);
+    const mBH = 21.2, mO = 40.6, M = mBH + mO; const bin = { a: 0.244, e: 0.019, P: 5.5998 };
+    const rs = 2 * 6.674e-11 * mBH * 1.989e30 / (299792458 ** 2) / 1000 / AU_KM;
+    defs.push({ id: 'cygx1', story: 'cygx1', name: 'Cygnus X-1', pos, normal: V(0.3, 0.6, 0.74), defaultDist: 2.2,
+      bodies: [{ name: 'HDE 226868', star: true, r: 22.3 * RSUN_AU, color: '#bcd0ff', marker: 20, binary: { ...bin, k: -mBH / M } },
+        { name: 'Cygnus X-1 black hole', r: rs, color: '#000000', markerColor: '#ffae66', marker: 14, binary: { ...bin, k: mO / M } }] });
+    const cx = findStar('Cygnus X-1'); if (cx) hide(cx[0]); // HYG's Hipparcos distance (~1,940 ly) is superseded
+  }
+  // Eta Carinae: ~7,500 ly (NASA); 5.54-yr orbit; e ≈ 0.9 and a ≈ 15.4 AU as in published colliding-wind models (periastron ≈ Mars' distance)
+  {
+    const pos = radec(161.2650, -59.6845, 7500 / 3.2616 * PC_AU);
+    const bin = { a: 15.4, e: 0.9, P: 5.54 * YEAR_D, phase: 0.5 }; const mA = 90, mB = 30, M = mA + mB;
+    defs.push({ id: 'etacar', story: 'etacar', name: 'Eta Carinae', pos, normal: V(0.2, 0.3, 0.93), defaultDist: 6e4,
+      bodies: [{ name: 'Eta Carinae A', star: true, r: 100 * RSUN_AU, color: '#cfe0ff', marker: 22, binary: { ...bin, k: -mB / M } },
+        { name: 'Eta Carinae B', star: true, r: 20 * RSUN_AU, color: '#e8f0ff', marker: 14, binary: { ...bin, k: mA / M } }],
+      after: sys => sys.group.add(makeHomunculus(pos.clone().normalize())) });
+    hideNear(161.2650, -59.6845);
+  }
+  return defs;
+}
+// Eta Carinae's hourglass cloud (illustration): two lobes along an axis, ~0.3 ly each
+function makeHomunculus(los) {
+  const r = rng(1843), n = isMobile ? 1600 : 2600, L = 0.3 * LY_AU;
+  const axis = planeBasis(los)[0].clone().multiplyScalar(0.8).addScaledVector(los, 0.6).normalize(); const [u, w] = planeBasis(axis);
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), sz = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const side = r() < 0.5 ? -1 : 1; const t = r(); const rad = L * 0.45 * Math.sin(Math.PI * t) * (0.85 + 0.15 * r()); const th = r() * Math.PI * 2;
+    const a = rad * Math.cos(th), b = rad * Math.sin(th), along = side * t * L;
+    pos[i * 3] = axis.x * along + u.x * a + w.x * b; pos[i * 3 + 1] = axis.y * along + u.y * a + w.y * b; pos[i * 3 + 2] = axis.z * along + u.z * a + w.z * b;
+    const f = 0.35 + r() * 0.35; col[i * 3] = 1 * f; col[i * 3 + 1] = 0.62 * f; col[i * 3 + 2] = 0.42 * f; sz[i] = L * 0.05 * (0.5 + r());
+  }
+  return cloudPoints(pos, col, sz, 0.6, 14);
+}
+function cloudPoints(pos, col, sz, opacity, max) {
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('size', new THREE.BufferAttribute(sz, 1));
+  const p = new THREE.Points(g, pointMaterial({ max, min: 1.0 })); p.frustumCulled = false;
+  p.onBeforeRender = () => { p.material.uniforms.uScale.value = pxPerUnit; p.material.uniforms.uOpacity.value = opacity; };
+  return p;
+}
+// Illustrated clouds at real positions: Crab Nebula, Pillars of Creation, Omega Centauri; plus the Pleiades (real HYG stars)
+function addReadOnlyStops() {
+  const addCloud = (id, name, center, n, gen, opacity, max, defaultDist, radius) => {
+    const r = rng(id.length * 7919); const N = isMobile ? Math.round(n * 0.6) : n;
+    const pos = new Float32Array(N * 3), col = new Float32Array(N * 3), sz = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const [x, y, z, c, s] = gen(r); pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2]; sz[i] = s; }
+    const grp = new THREE.Group(); grp.position.copy(center); scene.add(grp); grp.add(cloudPoints(pos, col, sz, opacity, max));
+    focusables[id] = { name, getPos: o => o.copy(center), radius, story: id, defaultDist };
+    return grp;
+  };
+  // Crab Nebula: RA 83.6331°, Dec 22.0145°, ~6,500 ly; ~10 ly across. Filament shell + central pulsar.
+  {
+    const R = 5 * LY_AU; const center = radec(83.6331, 22.0145, 6500 / 3.2616 * PC_AU);
+    addCloud('crab', 'Crab Nebula', center, 3200, r => {
+      const shell = r() < 0.6; const u = gauss(r), v = gauss(r), w = gauss(r); const d = Math.hypot(u, v, w) || 1;
+      const k = shell ? (0.75 + 0.25 * r()) / d : 0.45 * Math.pow(r(), 0.5) / d;
+      const c = shell ? (r() < 0.5 ? [1, 0.45, 0.25] : [0.55, 1, 0.45]) : [0.55, 0.65, 1]; const f = shell ? 0.5 : 0.35;
+      return [u * k * R * 1.3, v * k * R * 0.9, w * k * R * 0.9, c.map(x => x * f), R * (shell ? 0.05 : 0.09) * (0.5 + r())];
+    }, 0.45, 18, 1.4e6, R * 0.2);
+  }
+  // Pillars of Creation (Eagle Nebula, M16): RA 274.70°, Dec −13.82°, ~6,500 ly. Three dusty columns (illustration).
+  {
+    const H = 3 * LY_AU; const center = radec(274.70, -13.82, 6500 / 3.2616 * PC_AU);
+    const cols = [[-0.9, 1.0, 0.22], [0.15, 0.62, 0.17], [0.85, 0.45, 0.15]]; // x offset, height, width (× H)
+    addCloud('pillars', 'Pillars of Creation', center, 3000, r => {
+      if (r() < 0.25) { const c = [0.45, 0.75, 0.85]; return [gauss(r) * H * 1.2, (0.5 + gauss(r) * 0.6) * H, gauss(r) * H * 0.5, c.map(x => x * 0.25), H * 0.12 * (0.5 + r())]; }
+      const [ox, h, w] = cols[(r() * 3) | 0]; const t = Math.pow(r(), 0.8); const wid = w * (1 - 0.5 * t) * H;
+      const tip = t > 0.92; const c = tip ? [1, 0.75, 0.45] : [0.75, 0.42, 0.25]; const f = tip ? 0.8 : 0.4 + r() * 0.2;
+      return [ox * H + gauss(r) * wid * 0.5 + t * h * H * 0.12, t * h * H, gauss(r) * wid * 0.5, c.map(x => x * f), H * 0.03 * (0.5 + r())];
+    }, 0.55, 14, 6e5, H * 0.3);
+  }
+  // Omega Centauri: RA 201.697°, Dec −47.4795°, 17,700 ly (ESA/Hubble). Dense ball of old stars (illustration).
+  {
+    const R = 40 * LY_AU; const center = radec(201.697, -47.4795, 17700 / 3.2616 * PC_AU);
+    addCloud('omegacen', 'Omega Centauri', center, 7000, r => {
+      const u = gauss(r), v = gauss(r), w = gauss(r); const d = Math.hypot(u, v, w) || 1; const rr = R * Math.pow(r(), 1.9);
+      const warm = r() < 0.7; const c = warm ? [1, 0.85, 0.6] : [0.85, 0.9, 1]; const f = 0.45 + r() * 0.4;
+      return [u / d * rr, v / d * rr, w / d * rr, c.map(x => x * f), R * 0.012 * (0.5 + r())];
+    }, 0.8, 5, 8e6, R * 0.2);
+  }
+  // Pleiades: centre on Alcyone (HYG), real member stars are already in the star field
+  const al = starData.names.find(n => n[1] === 'Alcyone');
+  if (al) {
+    const i = al[0]; const p = V(starData.buf[i * 8], starData.buf[i * 8 + 1], starData.buf[i * 8 + 2]).multiplyScalar(PC_AU);
+    focusables.pleiades = { name: 'Pleiades', getPos: o => o.copy(p), radius: 1e5, story: 'pleiades', defaultDist: 1.6e6 };
+  }
 }
 function makeMiraTail(dir) {
   // ~13 ly long, widening behind the star; a brighter bow at the front
@@ -1051,11 +1182,17 @@ for (const b of solar.bodies) {
     onTap: () => flyTo(b.id) });
 }
 function addStoryLabels() {
-  for (const id of ['alphacen', 'sirius', 'trappist', 'betelgeuse', 'proxima', 'barnard', 'gliese710', 'peg51', 'kepler16', 'algol', 'polaris', 'mira', 'orion']) {
+  for (const id of ['alphacen', 'sirius', 'trappist', 'betelgeuse', 'proxima', 'barnard', 'gliese710', 'peg51', 'kepler16', 'algol', 'polaris', 'mira', 'orion', 'vega', 'cyg61', 'luhman16', 'capella', 'pleiades']) {
     const f = focusables[id]; if (!f) continue; const s = STORIES[f.story];
     addLabel({ text: s.title.toUpperCase(), sub: s.sub, cls: 'story', prio: 4,
       getPos: o => f.getPos(o),
       visible: () => { const d = camDistTo(f.getPos(tmpL)); const L = Math.log10(d); return L > 2.2 && L < 8.6 && camLogSun > 4.2; },
+      onTap: () => flyTo(id) });
+  }
+  for (const id of ['crab', 'etacar', 'cygx1', 'pillars', 'omegacen']) {
+    const f = focusables[id]; if (!f) continue; const s = STORIES[f.story];
+    addLabel({ text: s.title.toUpperCase(), sub: s.sub.split('·').pop().trim(), cls: 'story', prio: 4, getPos: o => f.getPos(o),
+      visible: () => { const L = Math.log10(camDistTo(f.getPos(tmpL))); return L > 2.2 && L < 9.7 && camLogSun > 6.5; },
       onTap: () => flyTo(id) });
   }
   const sg = focusables.sgra;
@@ -1152,6 +1289,7 @@ function showCard(story, focusId) {
   $('#cardSource').textContent = 'Source: ' + story.source;
   $('#cardNote').textContent = story.illustrative || '';
   $('#cardNote').style.display = story.illustrative ? '' : 'none';
+  try { if (story.noAudio) $('#narrate').style.display = 'none'; else updateNarrateBtn(); } catch { }
   card.classList.add('open'); card.classList.toggle('collapsed', innerWidth < 820); syncMore();
   stopSpeaking();
 }
