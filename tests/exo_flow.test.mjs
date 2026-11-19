@@ -44,7 +44,12 @@ test('deployed copy malformed -> null', async () => {
 });
 
 test('hanging fetch is aborted by timeout and falls through', async () => {
-  const fetchFn = (url, { signal }) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(new Error('aborted'))));
+  // A real hanging request keeps Node's event loop alive; AbortSignal.timeout's own timer does not
+  // (it is unref'd), so Node 22 would cancel the test before the abort fires. Hold the loop open here.
+  const fetchFn = (url, { signal }) => new Promise((_, rej) => {
+    const keepAlive = setTimeout(() => {}, 5000);
+    signal.addEventListener('abort', () => { clearTimeout(keepAlive); rej(new Error('aborted')); });
+  });
   assert.equal(await getPlanets({ ...opts(fetchFn), timeoutMs: 20 }), null);
 });
 
