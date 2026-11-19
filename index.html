@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Cosmoscope</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --void:#000; --star:#EDEAE2; --dim:#8E9AAF; --gold:#FFD27A; --blue:#7FB4FF;
+  --glass:rgba(14,16,24,.62); --line:rgba(237,234,226,.12);
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:var(--void);color:var(--star);font-family:Jost,system-ui,sans-serif;font-weight:400;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+#scene{position:fixed;inset:0;width:100%;height:100%;touch-action:none;display:block}
+#labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+
+.lbl{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:flex-start;padding:6px 8px 6px 14px;margin:-12px 0 0 -2px;
+  pointer-events:none;opacity:0;transition:opacity .35s;white-space:nowrap;text-align:left;color:var(--star)}
+.lbl.on{opacity:1;pointer-events:auto}
+.lbl.flip{align-items:flex-end;padding:6px 14px 6px 8px;translate:-100% 0;margin-left:2px;text-align:right}
+.lbl.flip::before{left:auto;right:0}
+.lbl::before{content:"";position:absolute;left:0;top:13px;width:9px;height:1px;background:currentColor;opacity:.5}
+.lbl .t{font-size:13px;font-weight:400;letter-spacing:.02em}
+.lbl .s{font-size:11px;color:var(--dim);font-weight:300;margin-top:1px}
+.lbl.major .t{font-size:14px;color:var(--gold)}
+.lbl.minor .t{font-size:12px;color:var(--dim)}
+.lbl.star{color:var(--dim)} .lbl.star .t{font-size:11.5px;font-weight:300}
+.lbl.story .t{font-size:12.5px;letter-spacing:.24em;font-weight:500}
+.lbl.here{color:var(--gold)} .lbl.here .t{font-style:italic;font-weight:300}
+
+/* top bar */
+#top{position:fixed;top:calc(var(--sat) + 14px);left:calc(var(--sal) + 16px);right:calc(var(--sar) + 16px);display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+#brand{pointer-events:none}
+#brand h1{font-size:15px;font-weight:300;letter-spacing:.42em;margin-right:-.42em}
+#scale{font-size:22px;font-weight:300;margin-top:10px;line-height:1.1}
+#scaleDist{font-size:12.5px;color:var(--dim);margin-top:3px;font-weight:300}
+#topBtns{display:flex;gap:8px;pointer-events:auto}
+.pill{height:36px;padding:0 14px;border-radius:18px;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);font-size:13.5px;display:inline-flex;align-items:center;gap:7px}
+.pill.on{border-color:var(--gold);color:var(--gold)}
+.icon{width:36px;padding:0;justify-content:center}
+.icon svg{width:18px;height:18px}
+
+/* bottom */
+#bottom{position:fixed;left:0;right:0;bottom:0;padding:0 calc(var(--sar) + 12px) calc(var(--sab) + 12px) calc(var(--sal) + 12px);display:flex;flex-direction:column;gap:10px;pointer-events:none}
+#note{align-self:center;font-size:11px;color:var(--dim);font-weight:300;font-style:italic;text-align:center;max-width:92%;min-height:14px;text-shadow:0 0 6px #000}
+#chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;pointer-events:auto;padding:2px 2px;-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent)}
+#chips::-webkit-scrollbar{display:none}
+.chip{flex:none;height:34px;padding:0 14px;border-radius:17px;font-size:13.5px;color:var(--star);background:rgba(237,234,226,.06);border:1px solid var(--line)}
+.chip:active{background:rgba(255,210,122,.16)}
+#timebar{display:flex;align-items:center;gap:8px;pointer-events:auto;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:22px;padding:5px 6px 5px 12px;height:48px}
+#when{flex:1;min-width:0;line-height:1.2}
+#date{font-size:13.5px;font-weight:300;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+#speed{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+.tbtn{width:36px;height:36px;border-radius:18px;display:grid;place-items:center}
+.tbtn svg{width:20px;height:20px}
+.tbtn:active{background:rgba(237,234,226,.1)}
+#live{height:28px;padding:0 10px;border-radius:14px;font-size:11.5px;letter-spacing:.08em;border:1px solid var(--line);color:var(--dim);display:flex;align-items:center;gap:6px}
+#live::before{content:"";width:6px;height:6px;border-radius:3px;background:var(--dim)}
+#live.on{color:var(--gold);border-color:rgba(255,210,122,.5)} #live.on::before{background:#ff5a4a;box-shadow:0 0 8px #ff5a4a}
+#topBtns{flex-wrap:wrap;justify-content:flex-end;max-width:62%}
+#viewSeg{display:flex;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:18px;padding:3px;border:1px solid var(--line);order:3}
+#viewSeg button{height:28px;padding:0 11px;border-radius:14px;font-size:12.5px;color:var(--dim)}
+#viewSeg button.sel{background:var(--star);color:#000}
+
+/* story card */
+#card{position:fixed;left:calc(var(--sal) + 12px);right:calc(var(--sar) + 12px);bottom:calc(var(--sab) + 134px);max-width:420px;background:var(--glass);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border:1px solid var(--line);border-radius:20px;padding:6px 20px 16px;transform:translateY(24px);opacity:0;pointer-events:none;transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .35s;max-height:52vh;overflow:auto}
+#card.open{transform:none;opacity:1;pointer-events:auto}
+#card.collapsed #cardFacts,#card.collapsed #cardNote,#card.collapsed #cardSource{display:none}
+#card.collapsed #cardHook{font-size:17px;margin:8px 0 4px}
+#more{color:var(--dim)}
+#cardGrab{display:block;width:100%;height:18px;position:relative}
+#cardGrab::after{content:"";position:absolute;left:50%;top:7px;width:36px;height:4px;border-radius:2px;background:rgba(237,234,226,.25);transform:translateX(-50%)}
+#cardHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+#cardTitle{font-size:17px;font-weight:500;letter-spacing:.22em}
+#cardSub{font-size:12.5px;color:var(--dim);margin-top:2px;font-weight:300}
+#cardClose{width:30px;height:30px;border-radius:15px;display:grid;place-items:center;color:var(--dim);flex:none}
+#cardHook{font-size:21px;line-height:1.25;font-weight:300;font-style:italic;margin:12px 0 10px}
+#cardFacts{list-style:none;display:grid;gap:8px}
+#cardFacts li{font-size:14.5px;line-height:1.5;font-weight:300;padding-left:14px;position:relative;color:#d9d6ce}
+#cardFacts li::before{content:"";position:absolute;left:0;top:.72em;width:5px;height:1px;background:var(--gold)}
+#cardNote{font-size:11.5px;font-style:italic;color:var(--dim);margin-top:10px}
+#cardSource{font-size:11.5px;color:var(--dim);margin-top:6px;font-weight:300}
+#cardActions{display:flex;gap:8px;margin-top:14px}
+#cardActions .pill{height:34px}
+#narrate.on{border-color:var(--gold);color:var(--gold)}
+
+/* sheets */
+.sheet{position:fixed;top:calc(var(--sat) + 60px);right:calc(var(--sar) + 12px);width:min(340px,calc(100vw - 24px));background:rgba(14,16,24,.86);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--line);border-radius:20px;padding:18px 18px 16px;opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .25s,transform .3s;max-height:calc(100vh - 140px);overflow:auto;z-index:5}
+.sheet.open{opacity:1;transform:none;pointer-events:auto}
+.sheet h2{font-size:16px;font-weight:400;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+.row{margin-bottom:16px}
+.row label{display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:8px}
+.row label span{color:var(--dim);font-weight:300}
+.row p{font-size:12px;color:var(--dim);font-weight:300;margin-top:6px;line-height:1.45}
+input[type=range]{width:100%;accent-color:var(--gold)} input[type=range]:disabled{opacity:.35}
+.check{display:flex;align-items:center;justify-content:space-between;font-size:13.5px;padding:8px 0;border-top:1px solid var(--line)}
+.check input{accent-color:var(--gold);width:18px;height:18px}
+#about p{font-size:13.5px;line-height:1.55;font-weight:300;color:#d9d6ce;margin-bottom:12px}
+#about h3{font-size:13px;font-weight:500;margin:14px 0 6px;color:var(--star)}
+#about li{font-size:12.5px;line-height:1.5;font-weight:300;color:var(--dim);margin-left:16px;margin-bottom:4px}
+#about a{color:var(--blue)}
+.x{width:30px;height:30px;border-radius:15px;display:grid;place-items:center;color:var(--dim)}
+
+#toast{position:fixed;left:50%;top:calc(var(--sat) + 104px);transform:translate(-50%,-6px);background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);
+  padding:9px 16px;border-radius:18px;font-size:13px;font-weight:300;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;max-width:88vw;text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* intro */
+#intro{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;transition:opacity 1.4s ease}
+#intro.gone{opacity:0}
+#intro div{text-align:center}
+#intro h1{font-size:clamp(28px,7vw,54px);font-weight:300;letter-spacing:.5em;margin-right:-.5em;animation:rise 2.2s cubic-bezier(.2,.8,.2,1) both}
+#intro p{font-size:15px;color:var(--dim);font-weight:300;font-style:italic;margin-top:14px;animation:rise 2.2s .4s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rise{from{opacity:0;letter-spacing:.8em;filter:blur(6px)}to{opacity:1}}
+#hint{position:fixed;left:50%;top:58%;transform:translateX(-50%);font-size:13px;color:var(--dim);font-weight:300;text-align:center;transition:opacity .8s;pointer-events:none;opacity:0;animation:fadein 1s 3.2s forwards;text-shadow:0 0 8px #000}
+#hint.gone{opacity:0!important;animation:none}
+@keyframes fadein{to{opacity:1}}
+body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(var(--sat) + 104px);transform:translateX(-50%);font-size:12px;color:var(--dim);opacity:0;transition:opacity .5s;pointer-events:none}
+
+@media (min-width:820px){
+  #card{left:auto;right:calc(var(--sar) + 16px);top:calc(var(--sat) + 70px);bottom:auto;width:380px;max-height:calc(100vh - 220px)}
+  #bottom{flex-direction:column;align-items:center}
+  #timebar{width:min(640px,100%)} #chips{justify-content:center;-webkit-mask-image:none}
+}
+@media (prefers-reduced-motion:reduce){ #intro h1,#intro p{animation:none} #card{transition:opacity .2s} }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="Interactive 3D universe"></canvas>
+<div id="labels"></div>
+
+<div id="intro"><div><h1>COSMOSCOPE</h1><p>Nothing out here stands still.</p></div></div>
+<div id="hint">Drag to look around · Pinch or scroll to zoom out</div>
+<div id="loading">Loading 109,000 real stars…</div>
+
+<div id="top">
+  <div id="brand"><h1>COSMOSCOPE</h1><div id="scale">Planet</div><div id="scaleDist"></div></div>
+  <div id="topBtns">
+    <div id="viewSeg" role="group" aria-label="Motion view"><button data-v="sun" class="sel">Sun view</button><button data-v="galaxy">Galaxy view</button></div>
+    <button class="pill" id="tourBtn">Tour</button>
+    <button class="pill icon" id="settingsBtn" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
+  </div>
+</div>
+
+<div id="card" role="dialog" aria-live="polite">
+  <button id="cardGrab" aria-label="Collapse card"></button>
+  <div id="cardHead"><div><div id="cardTitle"></div><div id="cardSub"></div></div>
+    <button id="cardClose" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button></div>
+  <div id="cardBody">
+    <p id="cardHook"></p>
+    <ul id="cardFacts"></ul>
+    <p id="cardNote"></p>
+    <p id="cardSource"></p>
+    <div id="cardActions">
+      <button class="pill" id="narrate"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 010 7"/></svg>Listen</button>
+      <button class="pill" id="more">More</button>
+      <button class="pill" id="cardNext">Next stop</button>
+    </div>
+  </div>
+</div>
+
+<div id="bottom">
+  <div id="note"></div>
+  <div id="chips"></div>
+  <div id="timebar">
+    <button id="live" aria-label="Jump to live time">LIVE</button>
+    <div id="when"><div id="date"></div><div id="speed"></div></div>
+    <button class="tbtn" id="slower" aria-label="Slower or reverse"><svg viewBox="0 0 24 24"><path d="M11 6v12L3 12zM20 6v12l-8-6z" fill="currentColor"/></svg></button>
+    <button class="tbtn" id="play" aria-label="Play or pause"></button>
+    <button class="tbtn" id="faster" aria-label="Faster"><svg viewBox="0 0 24 24"><path d="M4 6v12l8-6zM13 6v12l8-6z" fill="currentColor"/></svg></button>
+  </div>
+</div>
+
+<div class="sheet" id="sheet">
+  <h2>Settings <button class="x" id="sheetClose" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button></h2>
+  <div class="row"><label for="trailLen">Trail length <span id="trailLenOut"></span></label><input type="range" id="trailLen" min="0.1" max="1" step="0.05" value="0.6"></div>
+  <div class="row"><label for="trailRange">Star trails <span id="trailRangeOut"></span></label><input type="range" id="trailRange" min="0" max="1" step="0.05" value="0.5">
+    <p>How far from the center of your view stars show their motion. Fewer runs smoother on older phones.</p></div>
+  <label class="check">Fit spirals automatically <input type="checkbox" id="optAuto" checked></label>
+  <div class="row" style="margin-top:8px"><label for="sunSpeed">Speed through the galaxy <span id="sunSpeedOut"></span></label><input type="range" id="sunSpeed" min="0.02" max="1" step="0.02" value="0.1">
+    <p>Galaxy view only. At real speed stars outrun their planets so fast that the spirals stretch into nearly straight lines. Turn off automatic fitting to set it yourself.</p></div>
+  <label class="check">Show names <input type="checkbox" id="optLabels" checked></label>
+  <label class="check">Show orbit paths <input type="checkbox" id="optOrbits" checked></label>
+  <button class="pill" id="aboutBtn" style="margin-top:12px">About the data</button>
+</div>
+
+<div class="sheet" id="about">
+  <h2>About Cosmoscope <button class="x" id="aboutClose" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button></h2>
+  <p>Planet and Moon positions are calculated for the exact moment you are watching. Stars are real: 109,000 of them from the HYG catalog, placed at their measured distances and drifting with their measured motions when you speed up time.</p>
+  <p>Some things are drawn bigger or brighter than real life so you can see them. Those spots are always labeled at the bottom of the screen.</p>
+  <h3>Where the data comes from</h3>
+  <ul>
+    <li>Stars: HYG Database v4.1 by David Nash (CC BY-SA 4.0), built from Hipparcos, Yale Bright Star and Gliese catalogs</li>
+    <li>Planet & Moon positions: Astronomy Engine by Don Cross (MIT), computed live</li>
+    <li>Earth imagery: NASA Blue Marble & Black Marble. Moon imagery: NASA</li>
+    <li>Story facts: NASA, ESA, ESO, NASA Exoplanet Archive (sources on each card)</li>
+    <li>Milky Way, nearby galaxy shapes and the galaxy web: illustrations based on current maps</li>
+  </ul>
+  <h3>Coming next</h3>
+  <ul>
+    <li>Live feed of newly confirmed exoplanets from NASA (needs Cosmoscope’s own website)</li>
+    <li>Real galaxy maps from the SDSS and DESI surveys</li>
+    <li>ESA Gaia stars by the millions</li>
+  </ul>
+</div>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
