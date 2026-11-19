@@ -123,19 +123,40 @@ export function normalize(s) {
   t = t.replace(SUP_RE, (c) => String(SUP.indexOf(c)));
   t = t.replace(/[α-ωϑϕϵ]/g, (c) => (GREEK_CHAR[c] ? ` ${GREEK_CHAR[c]} ` : ' '));
   t = t.normalize('NFD').replace(COMBINING, '');
-  return t.replace(/[^a-z0-9]+/g, ' ').trim();
+  t = t.replace(/[^a-z0-9]+/g, ' ');
+  // split letter/digit boundaries so "kappa1", "kappa 1" and "hd209458" match consistently
+  return t.replace(/([a-z])([0-9])|([0-9])([a-z])/g, '$1$3 $2$4').trim();
 }
 
 export function parseStarIndex(text) {
   const rows = [];
-  const num = (v) => { if (v === '' || v == null) return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
-  for (const line of String(text).split('\n')) {
-    if (line === '' || line[0] === '#') continue;
-    const f = line.replace(/\r$/, '').split('\t');
-    rows.push({
-      hip: num(f[0]), hd: num(f[1]), gl: f[2] || '', bayer: f[3] || '', flam: f[4] || '',
-      con: f[5] || '', proper: f[6] || '', ly: num(f[7]), spect: f[8] || '', mag: num(f[9]),
-    });
+  text = String(text);
+  const num = (v) => (v === '' ? null : Number(v));
+  const f = new Array(10);
+  let pos = 0;
+  const len = text.length;
+  while (pos < len) {
+    let end = text.indexOf('\n', pos);
+    if (end < 0) end = len;
+    if (end > pos && text.charCodeAt(pos) !== 35) {
+      let lineEnd = end;
+      if (text.charCodeAt(lineEnd - 1) === 13) lineEnd--;
+      let from = pos;
+      for (let k = 0; k < 10; k++) {
+        const tab = k < 9 ? text.indexOf('\t', from) : -1;
+        const to = tab >= 0 && tab < lineEnd ? tab : lineEnd;
+        f[k] = text.slice(from, to);
+        from = to + 1;
+      }
+      const ly = num(f[7]);
+      const mag = num(f[9]);
+      rows.push({
+        hip: num(f[0]), hd: num(f[1]), gl: f[2], bayer: f[3], flam: f[4],
+        con: f[5], proper: f[6], ly: Number.isFinite(ly) ? ly : null, spect: f[8],
+        mag: Number.isFinite(mag) ? mag : null,
+      });
+    }
+    pos = end + 1;
   }
   return { rows };
 }
@@ -163,40 +184,92 @@ export function starNames(row) {
   return out;
 }
 
-// Extra searchable forms: "alp cen", "alpha cen", "61 cyg", "gl 699".
-function starAbbreviations(row) {
-  const out = [];
-  const b = bayerParts(row);
-  if (b) {
-    const s = b.suffix;
-    out.push(`${b.code} ${row.con}${s ? ' ' + s : ''}`, `${b.greek.name} ${row.con}${s ? ' ' + s : ''}`);
-    if (s) out.push(`${b.code}${s} ${row.con}`, `${b.greek.name}${s} ${row.con}`, `${b.greek.name} ${s} ${b.con.genitive}`);
+// Pre-normalized pieces so building the index needs no regex for most stars.
+const GREEK_N = {};
+for (const code of Object.keys(GREEK)) GREEK_N[code] = GREEK[code].name.toLowerCase();
+const CON_N = {};
+for (const abbr of Object.keys(CONSTELLATIONS)) {
+  CON_N[abbr] = { abbr: abbr.toLowerCase(), gen: normalize(CONSTELLATIONS[abbr].genitive) };
+}
+
+// One "|key|key|" string per star. Keys are already normalized.
+function hayFor(r) {
+  let s = '|';
+  if (r.proper) s += normalize(r.proper) + '|';
+  const c = CON_N[r.con];
+  if (c) {
+    if (r.bayer) {
+      const dash = r.bayer.indexOf('-');
+      const code = dash < 0 ? r.bayer : r.bayer.slice(0, dash);
+      const g = GREEK_N[code];
+      if (g) {
+        const sfx = dash < 0 ? '' : ' ' + r.bayer.slice(dash + 1);
+        const lc = code.toLowerCase();
+        s += g + sfx + ' ' + c.gen + '|' + lc + ' ' + c.abbr + sfx + '|' + g + ' ' + c.abbr + sfx + '|';
+        if (sfx) {
+          // also without the number, and with it before the constellation ("kap 1 scl")
+          s += g + ' ' + c.gen + '|' + lc + ' ' + c.abbr + '|' + g + ' ' + c.abbr + '|' + lc + sfx + ' ' + c.abbr + '|' + g + sfx + ' ' + c.abbr + '|';
+        }
+      }
+    }
+    if (r.flam) s += r.flam + ' ' + c.gen + '|' + r.flam + ' ' + c.abbr + '|';
   }
-  if (row.flam && row.con) out.push(`${row.flam} ${row.con}`);
-  if (row.gl) out.push(row.gl);
-  return out;
+  if (r.gl) {
+    const g = normalize(r.gl);
+    s += g + '|';
+    if (g.startsWith('gl ')) s += 'gliese ' + g.slice(3) + '|';
+  }
+  if (r.hd != null) s += 'hd ' + r.hd + '|';
+  if (r.hip != null) s += 'hip ' + r.hip + '|';
+  return s;
+}
+
+function makeIndex(rows, extras, hay) {
+  const ly = new Float64Array(rows.length);
+  for (let i = 0; i < rows.length; i++) ly[i] = rows[i].ly ?? Infinity;
+  const places = extras.map((e) => ({ e, key: normalize(e.name) })).filter((p) => p.key);
+  return { rows, hay, ly, places };
 }
 
 export function buildSearchIndex(rows, extras = []) {
   const hay = new Array(rows.length);
-  for (let i = 0; i < rows.length; i++) {
-    const keys = new Set();
-    for (const n of starNames(rows[i]).concat(starAbbreviations(rows[i]))) {
-      const k = normalize(n);
-      if (k) keys.add(k);
-    }
-    hay[i] = '|' + [...keys].join('|') + '|';
-  }
-  const places = extras.map((e) => ({ e, key: normalize(e.name) })).filter((p) => p.key);
-  return { rows, hay, places };
+  for (let i = 0; i < rows.length; i++) hay[i] = hayFor(rows[i]);
+  return makeIndex(rows, extras, hay);
 }
 
-// Tier: 0 exact, 1 starts with, 2 a word starts with, 3 contains. -1 = no match.
+// Same result as buildSearchIndex, but yields to the event loop between chunks.
+export async function buildSearchIndexAsync(rows, extras = [], { chunk = 5000 } = {}) {
+  const hay = new Array(rows.length);
+  for (let s = 0; s < rows.length; s += chunk) {
+    const e = Math.min(rows.length, s + chunk);
+    for (let i = s; i < e; i++) hay[i] = hayFor(rows[i]);
+    await new Promise((r) => setTimeout(r));
+  }
+  return makeIndex(rows, extras, hay);
+}
+
+// Tier: 0 exact, 1 starts with, 2 a word starts with, 3 contains. 4 = no match.
 function tierOf(key, q) {
   if (key === q) return 0;
   if (key.startsWith(q)) return 1;
   if (key.includes(' ' + q)) return 2;
-  return key.includes(q) ? 3 : -1;
+  return key.includes(q) ? 3 : 4;
+}
+
+// Best tier of q across the keys of one "|k|k|" haystack string.
+function hayTier(h, q) {
+  let best = 4;
+  const n = q.length;
+  let p = h.indexOf(q);
+  while (p >= 0) {
+    const c = h.charCodeAt(p - 1);
+    let t;
+    if (c === 124) t = h.charCodeAt(p + n) === 124 ? 0 : 1;
+    else t = c === 32 ? 2 : 3;
+    if (t < best) { best = t; if (t === 0) break; }
+    p = h.indexOf(q, p + 1);
+  }
+  return best;
 }
 
 export function search(index, query, limit = 30) {
@@ -205,27 +278,39 @@ export function search(index, query, limit = 30) {
   const hits = [];
   for (const p of index.places) {
     const t = tierOf(p.key, q);
-    if (t < 0) continue;
+    if (t > 3) continue;
     const e = p.e;
-    hits.push({ t, place: 1, boost: e.boost || 0, ly: e.ly ?? Infinity, name: e.name,
+    hits.push({ t, place: 1, boost: e.boost || 0, ly: e.ly ?? Infinity, name: e.name, i: 0,
       res: { type: 'place', id: e.id, name: e.name, kind: e.kind, ly: e.ly ?? null } });
   }
-  const { rows, hay } = index;
+  // Stars: keep only the nearest `limit` per tier while scanning.
+  const { rows, hay, ly } = index;
+  const buckets = [[], [], [], []];
+  let cutoff = 3;
   for (let i = 0; i < hay.length; i++) {
-    if (!hay[i].includes(q)) continue;
-    let best = 9;
-    for (const key of hay[i].split('|')) {
-      if (!key) continue;
-      const t = tierOf(key, q);
-      if (t >= 0 && t < best) { best = t; if (t === 0) break; }
-    }
-    if (best === 9) continue;
-    const r = rows[i];
-    const name = starNames(r)[0] || `Star ${i}`;
-    hits.push({ t: best, place: 0, boost: 0, ly: r.ly ?? Infinity, name,
-      res: { type: 'star', idx: i, name, kind: 'Star', ly: r.ly } });
+    const h = hay[i];
+    if (h.indexOf(q) < 0) continue;
+    const t = hayTier(h, q);
+    if (t > cutoff) continue;
+    const b = buckets[t];
+    const d = ly[i];
+    if (b.length >= limit && d >= ly[b[limit - 1]]) continue;
+    let j = b.length;
+    if (j >= limit) { b.pop(); j--; }
+    while (j > 0 && ly[b[j - 1]] > d) j--;
+    b.splice(j, 0, i);
+    let sum = 0;
+    cutoff = 3;
+    for (let k = 0; k < 4; k++) { sum += buckets[k].length; if (sum >= limit) { cutoff = k; break; } }
+  }
+  for (let t = 0; t < 4; t++) {
+    for (const i of buckets[t]) hits.push({ t, place: 0, boost: 0, ly: ly[i], name: '', i, res: null });
   }
   hits.sort((a, b) => a.t - b.t || b.place - a.place || b.boost - a.boost || a.ly - b.ly
-    || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  return hits.slice(0, limit).map((h) => h.res);
+    || (a.place ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a.i - b.i));
+  return hits.slice(0, limit).map((h) => {
+    if (h.res) return h.res;
+    const r = rows[h.i];
+    return { type: 'star', idx: h.i, name: starNames(r)[0] || `Star ${h.i}`, kind: 'Star', ly: r.ly };
+  });
 }

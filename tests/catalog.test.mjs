@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import {
-  CONSTELLATIONS, GREEK, parseStarIndex, starNames, normalize, buildSearchIndex, search,
+  CONSTELLATIONS, GREEK, parseStarIndex, starNames, normalize, buildSearchIndex, buildSearchIndexAsync, search,
 } from '../src/catalog.mjs';
 
 const row = (o) => ({ hip: null, hd: null, gl: '', bayer: '', flam: '', con: '', proper: '', ly: null, spect: '', mag: null, ...o });
@@ -58,7 +58,7 @@ test('starNames never empty for real rows', () => {
 
 test('normalize', () => {
   assert.equal(normalize('α Cen'), normalize('alpha cen'));
-  assert.equal(normalize('Kappa¹ Sculptoris'), 'kappa1 sculptoris');
+  assert.equal(normalize('Kappa¹ Sculptoris'), 'kappa 1 sculptoris');
   assert.equal(normalize('Boötes'), 'bootes');
   assert.equal(normalize('  Gl-699!! '), 'gl 699');
   assert.equal(normalize('   '), '');
@@ -123,4 +123,30 @@ test('generated constellations.json: 88 with lines', { skip: !existsSync(cgen) }
   const c = JSON.parse(readFileSync(cgen, 'utf8'));
   assert.equal(c.length, 88);
   assert.ok(c.every((x) => CONSTELLATIONS[x.abbr] && x.lines.length > 0));
+});
+
+test('Kappa 1 Sculptoris is found by every spelling', () => {
+  for (const q of ['kap 1 scl', 'kap1 scl', 'kappa 1 scl', 'kappa1 scl', 'κ1 scl', 'κ¹ scl', 'kappa 1 sculptoris', 'Kappa¹ Sculptoris']) {
+    assert.equal(search(idx, q)[0]?.idx, 5, q);
+  }
+  assert.equal(search(idx, 'hd224700')[0].idx, 0);
+});
+
+test('buildSearchIndexAsync gives the same index', async () => {
+  const a = await buildSearchIndexAsync(rows, extras, { chunk: 3 });
+  assert.deepEqual(a.hay, idx.hay);
+  assert.deepEqual(search(a, 'vega'), search(idx, 'vega'));
+});
+
+test('short queries on the full catalog are fast and sane', { skip: !existsSync(gen) }, () => {
+  const { rows: r } = parseStarIndex(readFileSync(gen, 'utf8'));
+  const big = buildSearchIndex(r, []);
+  for (const q of ['h', 'hip', '1', 'a', 'hd 1']) {
+    search(big, q); // warm up
+    const t0 = performance.now();
+    const res = search(big, q);
+    const ms = performance.now() - t0;
+    assert.equal(res.length, 30, q);
+    assert.ok(ms < 100, q + ' took ' + ms.toFixed(1) + ' ms');
+  }
 });
