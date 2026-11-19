@@ -4,6 +4,7 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { STORIES } from './stories.js';
+import { inWindow, newestRelease, shouldFlyIn, planetSubtitle, planetStory, teffToRGB, escapeHTML } from './newworlds.mjs';
 
 // ───────────────────────── units & helpers ─────────────────────────
 // Scene unit: 1 AU. Frame: J2000 equatorial (x → vernal equinox, z → celestial north).
@@ -782,7 +783,7 @@ function flyTo(id, dist, dur, lookFrom) {
   if (lookFrom) { const m = new THREE.Matrix4().lookAt(lookFrom.clone().normalize(), V(), ECL_N.clone().cross(lookFrom).lengthSq() > 1e-6 ? ECL_N : V(0, 1, 0)); toQ = new THREE.Quaternion().setFromRotationMatrix(m); }
   cam.anim = { id, fromPos, fromLog, toLog, bump, t0: performance.now(), dur: dur ?? clamp(1200 + span * 260, 1400, 5200), fromQ: cam.q.clone(), toQ };
   cam.focusId = id;
-  showCard(f.story ? STORIES[f.story] : null, id);
+  showCard(f.story ? (typeof f.story === 'string' ? STORIES[f.story] : f.story) : null, id);
 }
 function flyToStar(idx) {
   const n = starData.names.find(x => x[0] === idx);
@@ -976,10 +977,11 @@ function showCard(story, focusId) {
   cardFocusId = focusId;
   if (!story) { card.classList.remove('open'); return; }
   cardStoryKey = story;
-  $('#cardTitle').textContent = story.title.toUpperCase();
+  $('#cardTitle').textContent = story.isNew ? story.title : story.title.toUpperCase(); // keep planet letters lowercase ("b", not "B")
+  $('#cardNew').hidden = !story.isNew;
   $('#cardSub').textContent = story.sub;
   $('#cardHook').textContent = story.hook;
-  $('#cardFacts').innerHTML = story.facts.map(f => `<li>${f}</li>`).join('');
+  $('#cardFacts').innerHTML = story.facts.map(f => `<li>${escapeHTML(f)}</li>`).join('');
   $('#cardSource').textContent = 'Source: ' + story.source;
   $('#cardNote').textContent = story.illustrative || '';
   $('#cardNote').style.display = story.illustrative ? '' : 'none';
@@ -1062,7 +1064,7 @@ document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => {
   if (settings.view === 'galaxy' && time.speedIdx < 4) setSpeed(5);
 });
 // settings sheet
-$('#settingsBtn').onclick = () => $('#sheet').classList.toggle('open');
+$('#settingsBtn').onclick = () => { $('#newList').classList.remove('open'); $('#sheet').classList.toggle('open'); };
 $('#sheetClose').onclick = () => $('#sheet').classList.remove('open');
 const bindRange = (id, key, fmt) => { const el = $(id); const out = $(id + 'Out'); const upd = () => { settings[key] = parseFloat(el.value); out.textContent = fmt(settings[key]); }; el.oninput = upd; upd(); };
 bindRange('#trailLen', 'trailLen', v => v < 0.35 ? 'Short' : v < 0.75 ? 'Medium' : 'Long');
@@ -1072,7 +1074,7 @@ $('#optLabels').onchange = e => settings.labels = e.target.checked;
 $('#optOrbits').onchange = e => settings.orbits = e.target.checked;
 $('#optAuto').onchange = e => { settings.autoSpiral = e.target.checked; $('#sunSpeed').disabled = settings.autoSpiral; };
 $('#sunSpeed').disabled = true;
-$('#aboutBtn').onclick = () => { $('#about').classList.add('open'); $('#sheet').classList.remove('open'); };
+$('#aboutBtn').onclick = () => { $('#about').classList.add('open'); $('#sheet').classList.remove('open'); $('#newList').classList.remove('open'); };
 $('#aboutClose').onclick = () => $('#about').classList.remove('open');
 
 // toast
@@ -1101,6 +1103,159 @@ function tourStep() {
   tour.next = performance.now() + (cam.anim?.dur || 2000) + 9000;
 }
 $('#cardNext').onclick = () => { if (tour) tourStep(); else startTour(); };
+
+// ───────────────────────── new worlds (live NASA feed) ─────────────────────────
+// Planets NASA added in the last 90 days. Each placed host is a glowing dot at NASA's
+// position plus a pulsing ring (both a fixed pixel size, so "not to scale").
+const NW_FEED_KEY = 'cosmo.newPlanets', NW_SEEN_KEY = 'cosmo.lastSeenBatch';
+const nwGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const nwSet = (k, v) => { try { localStorage.setItem(k, v); } catch { } };
+const newWorlds = { planets: [], hosts: [], noteOn: false, ringMat: null, userActed: false };
+// Any input since load means the visitor has started exploring: never hijack their camera.
+for (const ev of ['pointerdown', 'wheel', 'keydown']) addEventListener(ev, () => { newWorlds.userActed = true; }, { capture: true, passive: true });
+const nwReducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
+// The automatic fly-in may only start from the untouched opening shot.
+const nwIdleAtStart = () => cam.focusId === 'earth' && !cam.anim && !newWorlds.userActed && !card.classList.contains('open')
+  && !['#sheet', '#about', '#newList'].some(sel => $(sel)?.classList.contains('open'));
+const NW_RING_FRAG = `
+  uniform vec3 uColor; uniform float uOpacity;
+  #include <logdepthbuf_pars_fragment>
+  void main(){
+    #include <logdepthbuf_fragment>
+    float d = length(gl_PointCoord-0.5)*2.0;
+    float a = smoothstep(0.74, 0.84, d) * (1.0 - smoothstep(0.88, 0.98, d)) * uOpacity;
+    if (a < 0.005) discard;
+    gl_FragColor = vec4(uColor, a);
+  }`;
+const nwHasDist = p => Number.isFinite(p.sy_dist) && p.sy_dist > 0 && Number.isFinite(p.ra) && Number.isFinite(p.dec);
+const nwValid = list => inWindow(list.filter(p => p && typeof p.pl_name === 'string' && p.pl_name), Date.now());
+async function loadNewPlanets() {
+  let planets = null;
+  try {
+    const r = await fetch('new_planets.json', { cache: 'no-cache' });
+    if (r.ok) { const j = await r.json(); if (Array.isArray(j?.planets)) planets = j.planets; }
+  } catch { }
+  if (planets) { planets = nwValid(planets); nwSet(NW_FEED_KEY, JSON.stringify(planets)); return planets; }
+  try { const c = JSON.parse(nwGet(NW_FEED_KEY)); if (Array.isArray(c)) return nwValid(c); } catch { }
+  return [];
+}
+function buildNewWorlds(planets) {
+  const seen = new Set();
+  newWorlds.planets = planets.filter(p => !seen.has(p.pl_name) && seen.add(p.pl_name));
+  newWorlds.ringMat = new THREE.ShaderMaterial({
+    uniforms: { uSize: { value: 44 }, uColor: { value: new THREE.Color('#ffd27a') }, uOpacity: { value: 0 } },
+    vertexShader: MARKER_VERT, fragmentShader: NW_RING_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const byHost = new Map();
+  for (const p of newWorlds.planets) {
+    if (!nwHasDist(p)) continue;
+    const key = `${p.hostname}|${p.ra}|${p.dec}|${p.sy_dist}`;
+    let h = byHost.get(key);
+    if (!h) {
+      const pos = radec(p.ra, p.dec, p.sy_dist * PC_AU);
+      const dot = makeMarker(new THREE.Color().setRGB(...teffToRGB(p.st_teff)), 13);
+      const ring = new THREE.Points(dot.geometry, newWorlds.ringMat); ring.frustumCulled = false; ring.renderOrder = 5;
+      const group = new THREE.Group(); group.position.copy(pos); group.add(ring, dot); group.visible = false; scene.add(group);
+      h = { pos, dot, group, planets: [], vis: 0 };
+      byHost.set(key, h); newWorlds.hosts.push(h);
+    }
+    h.planets.push(p);
+    focusables['new:' + p.pl_name] = { name: p.pl_name, getPos: o => o.copy(h.pos), radius: 0.01, story: planetStory(p), defaultDist: 3000 };
+  }
+  for (const h of newWorlds.hosts) {
+    const first = h.planets[0];
+    const host = typeof first.hostname === 'string' ? first.hostname : '';
+    const letters = h.planets.map(p => host && p.pl_name.startsWith(host + ' ') ? p.pl_name.slice(host.length + 1) : null);
+    const text = h.planets.length > 1 && letters.every(Boolean) ? `${host} ${letters.join(' & ')}` : h.planets.map(p => p.pl_name).join(' & ');
+    // prio -1: below bright-star names (prio 0), so NEW labels yield to them when crowded
+    addLabel({ text: escapeHTML(text), sub: 'NEW', cls: 'newp', prio: -1, getPos: o => o.copy(h.pos),
+      visible: () => settings.labels && h.vis > 0.3 && Math.log10(camDistTo(h.pos)) < 8.6,
+      onTap: () => flyTo('new:' + first.pl_name) });
+  }
+}
+function updateNewWorlds(now, Lc) {
+  if (!newWorlds.hosts.length) return;
+  const pr = renderer.getPixelRatio();
+  // nearby stars → edge of the Milky Way; gone before galaxy scale, where ~30 rings would pile up into one blob at the Sun
+  const zoomVis = smooth(4.2, 5.0, Lc) * (1 - smooth(9.5, 10.1, Lc));
+  let maxVis = 0;
+  for (const h of newWorlds.hosts) {
+    const near = 1 - smooth(4.6, 5.4, Math.log10(Math.max(camera.position.distanceTo(h.pos), 1e-9)));
+    h.vis = Math.max(zoomVis, near);
+    h.group.visible = h.vis > 0.01;
+    h.dot.material.uniforms.uOpacity.value = h.vis;
+    h.dot.material.uniforms.uSize.value = 13 * pr;
+    if (h.vis > maxVis) maxVis = h.vis;
+  }
+  newWorlds.ringMat.uniforms.uOpacity.value = (0.55 + 0.35 * Math.sin(now * 0.0026)) * maxVis; // slow ~2.4 s pulse
+  newWorlds.ringMat.uniforms.uSize.value = 44 * pr;
+  newWorlds.noteOn = maxVis > 0.3;
+}
+function buildNewList() {
+  const list = $('#newItems'); list.textContent = '';
+  for (const p of newWorlds.planets) {
+    const li = document.createElement('li');
+    const b = document.createElement('button'); b.className = 'nwRow';
+    const t = document.createElement('span'); t.className = 'nwName'; t.textContent = p.pl_name;
+    const s = document.createElement('span'); s.className = 'nwSub'; s.textContent = planetSubtitle(p) || 'Distance not measured';
+    b.append(t, s);
+    const fac = typeof p.disc_facility === 'string' ? p.disc_facility.replace(/<[^>]*>/g, '').trim() : '';
+    if (fac) { const f = document.createElement('span'); f.className = 'nwFac'; f.textContent = fac; b.append(f); }
+    b.onclick = () => {
+      $('#newList').classList.remove('open');
+      if (focusables['new:' + p.pl_name]) flyTo('new:' + p.pl_name);
+      else showCard(planetStory(p), cam.focusId); // no distance: card only, no flight
+    };
+    li.append(b); list.append(li);
+  }
+}
+// Phones: keep the pill on the same row as Tour and Settings; drop the word "NEW" if it would wrap.
+function fitNewBtn() {
+  const btn = $('#newBtn'); btn.classList.remove('compact');
+  if ($('#settingsBtn').getBoundingClientRect().top > $('#tourBtn').getBoundingClientRect().top + 4) btn.classList.add('compact');
+}
+function startNewFlyIn(newest) {
+  const closest = list => list.filter(nwHasDist).sort((a, b) => a.sy_dist - b.sy_dist)[0];
+  // Introduce a planet from the batch that triggered the fly-in. If nobody in that batch has a
+  // measured distance, fall back to the closest placed planet overall (the batch is still marked seen).
+  const target = closest(newWorlds.planets.filter(p => p.first_release === newest)) || closest(newWorlds.planets);
+  if (!target) return;
+  toast('New world confirmed');
+  if (nwReducedMotion()) return; // caption only: no automatic camera flight
+  flyTo('new:' + target.pl_name);
+  const anim = cam.anim;
+  const cancel = e => {
+    if (e.target instanceof Node && card.contains(e.target)) return; // More / Listen / close on the card are not "stop"
+    removeEventListener('pointerdown', cancel, true); removeEventListener('wheel', cancel, true); removeEventListener('keydown', cancel, true);
+    if (!anim || cam.anim !== anim) return; // flight already finished or replaced
+    // stop right here: hold the current view point instead of snapping on to the planet
+    const here = cam.target.clone();
+    focusables['new:here'] = { name: 'Deep space', getPos: o => o.copy(here), radius: 1e-6, defaultDist: Math.pow(10, cam.logD) };
+    cam.anim = null; cam.focusId = 'new:here';
+    card.classList.remove('open'); stopSpeaking();
+  };
+  addEventListener('pointerdown', cancel, true); addEventListener('wheel', cancel, true); addEventListener('keydown', cancel, true);
+}
+async function initNewWorlds(starsReady) {
+  try {
+    const introGone = new Promise(r => setTimeout(r, 2800));
+    await starsReady;
+    const planets = await loadNewPlanets();
+    if (!planets.length) return;
+    buildNewWorlds(planets);
+    buildNewList();
+    $('#newCount').textContent = newWorlds.planets.length;
+    $('#newBtn').setAttribute('aria-label', `${newWorlds.planets.length} new worlds from NASA`);
+    $('#newBtn').hidden = false;
+    fitNewBtn(); addEventListener('resize', fitNewBtn);
+    $('#newBtn').onclick = () => { $('#sheet').classList.remove('open'); $('#about').classList.remove('open'); $('#newList').classList.toggle('open'); };
+    $('#newClose').onclick = () => $('#newList').classList.remove('open');
+    await introGone;
+    const newest = newestRelease(newWorlds.planets);
+    // If the visitor is already exploring, leave the batch unseen so the fly-in happens next visit.
+    if (shouldFlyIn(newest, nwGet(NW_SEEN_KEY), !!tour) && nwIdleAtStart()) { nwSet(NW_SEEN_KEY, newest); startNewFlyIn(newest); }
+  } catch { /* the feed is optional: stay silent */ }
+}
 
 // ───────────────────────── frame loop ─────────────────────────
 const clock = { last: performance.now() };
@@ -1132,6 +1287,7 @@ function updateNotes(Lc) {
   }
   if (Lc > 7.6 && Lc < 13) notes.push('Milky Way shape is an illustration');
   if (Lc > 12.4) notes.push('Galaxy web is an illustration');
+  if (newWorlds.noteOn) notes.push('New-world markers not to scale');
   if (starTrails?.visible && starData?.trailYears) notes.push(`Star trails: last ${fmtYears(starData.trailYears)}`);
   $('#note').textContent = notes.join(' · ');
 }
@@ -1202,6 +1358,7 @@ function frame(now) {
     }
   }
   const { solarVis } = layerFades(Lc);
+  updateNewWorlds(now, Lc);
   // trails
   for (const sys of systems) {
     const host = sys.isStory ? sys.hostPos : solar.bodies[0].pos;
@@ -1258,7 +1415,8 @@ addEventListener('resize', resize); resize();
 }
 updateTimeUI();
 requestAnimationFrame(frame);
-loadStars().then(() => { document.body.classList.add('ready'); }).catch(err => { console.error(err); document.body.classList.add('ready'); toast('Star catalog could not load.'); });
+const starsReady = loadStars().then(() => { document.body.classList.add('ready'); }).catch(err => { console.error(err); document.body.classList.add('ready'); toast('Star catalog could not load.'); });
 setTimeout(() => { $('#intro').classList.add('gone'); }, 2600);
 setTimeout(hideHint, 11000);
+initNewWorlds(starsReady);
 window.__cosmo = { cam, flyTo, settings, time, setSpeed, focusables };
