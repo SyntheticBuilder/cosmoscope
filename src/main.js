@@ -1380,7 +1380,7 @@ const searchUI = initSearch({
   // Read: card only. The camera and its focus stay where they are.
   readPlace: id => { const s = storyOf(focusables[id]); if (s) showCard(s, cam.focusId); },
   readStar: idx => { const owner = starOwner.get(idx); showCard(owner ? storyOf(focusables[owner]) : starStory(idx), cam.focusId); },
-  closeOthers: () => { for (const sel of ['#sheet', '#about', '#newList']) $(sel).classList.remove('open'); card.classList.remove('open'); stopSpeaking(); },
+  closeOthers: () => { stopTour(); for (const sel of ['#sheet', '#about', '#newList']) $(sel).classList.remove('open'); card.classList.remove('open'); stopSpeaking(); },
 });
 function solarLook() { // above the plane of the planets, looking down at ~35°
   const side = new THREE.Vector3().crossVectors(ECL_N, V(1, 0, 0)).normalize();
@@ -1785,7 +1785,7 @@ addEventListener('resize', resize); resize();
 }
 updateTimeUI();
 requestAnimationFrame(frame);
-const starsReady = loadStars().then(() => { document.body.classList.add('ready'); }).catch(err => { console.error(err); document.body.classList.add('ready'); toast('Star catalog could not load.'); });
+const starsReady = loadStars().then(() => { document.body.classList.add('ready'); searchUI.refresh(); }).catch(err => { console.error(err); document.body.classList.add('ready'); toast('Star catalog could not load.'); });
 setTimeout(() => { $('#intro').classList.add('gone'); }, 2600);
 setTimeout(hideHint, 11000);
 initNewWorlds(starsReady);

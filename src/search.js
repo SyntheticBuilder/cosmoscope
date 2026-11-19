@@ -179,7 +179,8 @@ export function initSearch(api) {
     clearTimeout(debounce); debounce = setTimeout(runSearch, 60);
   });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { // fly to the top result
+    if (e.key === 'Enter' && !e.isComposing) { // fly to the top result of what is typed now
+      clearTimeout(debounce); if (tab !== 'search') setTab('search'); else runSearch();
       const first = list.querySelector('.spRow'); const a = first && actions.get(first.dataset.k);
       if (a && !a.flyDisabled?.()) { close(); a.fly(); }
     }
@@ -198,7 +199,9 @@ export function initSearch(api) {
       if (!n && !(c === 'Named stars' && !api.namedStars())) continue; // hide empty categories (keep Named stars while loading)
       const b = document.createElement('button'); b.className = 'chip spCat'; b.textContent = c;
       b.setAttribute('aria-pressed', String(c === atlasCat));
-      b.onclick = () => { atlasCat = c; renderAtlas(); };
+      b.dataset.cat = c;
+      // re-rendering replaces the chips, so put focus back on the new one
+      b.onclick = () => { atlasCat = c; renderAtlas(); [...cats.children].find((x) => x.dataset.cat === c)?.focus({ preventScroll: true }); };
       cats.append(b);
     }
     const entries = atlasCat ? atlasEntries(atlasCat).sort(byName) : [];
@@ -224,7 +227,18 @@ export function initSearch(api) {
     panel.classList.toggle('atlas', t === 'atlas');
     if (t === 'atlas') renderAtlas(); else { showStatus(); runSearch(); }
   }
-  for (const b of panel.querySelectorAll('[role=tab]')) b.onclick = () => setTab(b.dataset.tab);
+  const tabs = [...panel.querySelectorAll('[role=tab]')];
+  for (const b of tabs) {
+    b.onclick = () => setTab(b.dataset.tab);
+    // ARIA tabs pattern: arrows / Home / End move between tabs (only the selected tab is in the Tab order)
+    b.onkeydown = (e) => {
+      const i = tabs.indexOf(b);
+      const j = e.key === 'ArrowRight' ? (i + 1) % tabs.length : e.key === 'ArrowLeft' ? (i - 1 + tabs.length) % tabs.length
+        : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1;
+      if (j < 0) return;
+      e.preventDefault(); setTab(tabs[j].dataset.tab); tabs[j].focus();
+    };
+  }
 
   list.addEventListener('click', (ev) => {
     const b = ev.target.closest('button[data-act]'); if (!b || b.disabled) return;
@@ -246,6 +260,7 @@ export function initSearch(api) {
   }
   function close() {
     if (!isOpen()) return;
+    clearTimeout(debounce);
     panel.classList.remove('open'); btn.setAttribute('aria-expanded', 'false');
     if (panel.contains(document.activeElement)) btn.focus({ preventScroll: true });
   }
@@ -261,6 +276,13 @@ export function initSearch(api) {
 
   return {
     open, close, isOpen,
+    // Re-render the open panel (e.g. once the star field is ready, so star rows can fly).
+    refresh() {
+      if (!isOpen()) return;
+      const y = list.scrollTop;
+      if (tab === 'atlas') renderAtlas(); else runSearch();
+      list.scrollTop = y;
+    },
     row: (idx) => (loadState === 'ready' ? index.rows[idx] || null : null),
     // Hook for later features: entries { key, name, kind, sub, ly, category, fly(), read() }.
     addExtras(list) { extraEntries = extraEntries.concat(list); if (isOpen()) { refreshPlaces(); setTab(tab); } },
