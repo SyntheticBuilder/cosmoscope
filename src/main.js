@@ -1167,7 +1167,8 @@ function buildNewWorlds(planets) {
     const host = typeof first.hostname === 'string' ? first.hostname : '';
     const letters = h.planets.map(p => host && p.pl_name.startsWith(host + ' ') ? p.pl_name.slice(host.length + 1) : null);
     const text = h.planets.length > 1 && letters.every(Boolean) ? `${host} ${letters.join(' & ')}` : h.planets.map(p => p.pl_name).join(' & ');
-    addLabel({ text: escapeHTML(text), sub: 'NEW', cls: 'newp', prio: 3, getPos: o => o.copy(h.pos),
+    // prio -1: below bright-star names (prio 0), so NEW labels yield to them when crowded
+    addLabel({ text: escapeHTML(text), sub: 'NEW', cls: 'newp', prio: -1, getPos: o => o.copy(h.pos),
       visible: () => settings.labels && h.vis > 0.3 && Math.log10(camDistTo(h.pos)) < 8.6,
       onTap: () => flyTo('new:' + first.pl_name) });
   }
@@ -1175,7 +1176,8 @@ function buildNewWorlds(planets) {
 function updateNewWorlds(now, Lc) {
   if (!newWorlds.hosts.length) return;
   const pr = renderer.getPixelRatio();
-  const zoomVis = smooth(4.2, 5.0, Lc) * (1 - smooth(10.6, 11.4, Lc)); // nearby stars → Milky Way
+  // nearby stars → edge of the Milky Way; gone before galaxy scale, where ~30 rings would pile up into one blob at the Sun
+  const zoomVis = smooth(4.2, 5.0, Lc) * (1 - smooth(9.5, 10.1, Lc));
   let maxVis = 0;
   for (const h of newWorlds.hosts) {
     const near = 1 - smooth(4.6, 5.4, Math.log10(Math.max(camera.position.distanceTo(h.pos), 1e-9)));
