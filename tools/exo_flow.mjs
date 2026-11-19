@@ -28,7 +28,7 @@ export async function getPlanets({ fetchFn = fetch, siteUrl = '', now = Date.now
   }
   try {
     if (!siteUrl) throw new Error('SITE_URL not set');
-    const data = await getJson(`${siteUrl}/new_planets.json`);
+    const data = await getJson(`${siteUrl.replace(/\/+$/, '')}/new_planets.json`);
     if (!data || !Array.isArray(data.planets)) throw new Error('malformed');
     log(`Deployed copy: ${data.planets.length} planets`);
     return data;

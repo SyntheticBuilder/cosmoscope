@@ -47,3 +47,12 @@ test('hanging fetch is aborted by timeout and falls through', async () => {
   const fetchFn = (url, { signal }) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(new Error('aborted'))));
   assert.equal(await getPlanets({ ...opts(fetchFn), timeoutMs: 20 }), null);
 });
+
+test('siteUrl with a trailing slash still builds a clean fallback url', async () => {
+  const fetchFn = async (url) => {
+    if (url.includes('exoplanetarchive')) throw new Error('boom');
+    assert.equal(url, 'https://site.test/app/new_planets.json');
+    return ok(deployed);
+  };
+  assert.deepEqual(await getPlanets({ ...opts(fetchFn), siteUrl: 'https://site.test/app/' }), deployed);
+});

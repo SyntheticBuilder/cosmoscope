@@ -3,7 +3,7 @@
 const FIELDS = [
   'pl_name', 'hostname', 'disc_pubdate', 'disc_year', 'disc_facility',
   'discoverymethod', 'pl_rade', 'pl_bmasse', 'pl_orbper', 'pl_eqt',
-  'sy_dist', 'ra', 'dec', 'sy_pnum', 'st_teff', 'disc_refname',
+  'sy_dist', 'ra', 'dec', 'sy_pnum', 'st_teff', 'disc_refname', 'pl_bmassprov',
 ];
 
 export function firstReleaseQuery(cutoffISO) {
@@ -15,11 +15,23 @@ export function detailQuery(names) {
   return `select ${FIELDS.join(',')} from ps where default_flag=1 and pl_name in (${list})`;
 }
 
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+// Decode the entities NASA's reference html uses (&amp; &lt; &gt; &quot; &#39; &#NNN;).
+function decodeEntities(s) {
+  return s.replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (m, e) => {
+    const k = e.toLowerCase();
+    if (k in ENTITIES) return ENTITIES[k];
+    if (k[0] !== '#') return m;
+    const code = k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+  });
+}
+
 export function cleanRef(html) {
   if (!html) return { text: null, url: null };
   const urlMatch = /href=["']?([^\s"'>]+)/i.exec(html);
-  const text = html.replace(/<[^>]*>/g, '').trim();
-  return { text: text || null, url: urlMatch ? urlMatch[1] : null };
+  const text = decodeEntities(html.replace(/<[^>]*>/g, '')).trim();
+  return { text: text || null, url: urlMatch ? decodeEntities(urlMatch[1]) : null };
 }
 
 export function shapePlanets(firstRows, detailRows, fetchedAt) {

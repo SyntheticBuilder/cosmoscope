@@ -45,3 +45,15 @@ test('shapePlanets sorts by distance, nulls last, attaches first_release', () =>
   assert.equal(out.planets[1].ref_url, 'https://x.org');
   assert.ok(!('disc_refname' in out.planets[1]));
 });
+
+test('cleanRef decodes common HTML entities in the text', () => {
+  const html = '<a href=https://x.org/a?b=1&amp;c=2>Smith &amp; Jones &lt;2026&gt; &quot;Q&quot; O&#39;Neil &#233;</a>';
+  assert.deepEqual(cleanRef(html), {
+    text: 'Smith & Jones <2026> "Q" O\'Neil é',
+    url: 'https://x.org/a?b=1&c=2',
+  });
+});
+
+test('detailQuery asks for the mass provenance field', () => {
+  assert.ok(detailQuery(['X b']).includes('pl_bmassprov'));
+});
