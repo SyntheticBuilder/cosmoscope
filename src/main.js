@@ -5,6 +5,8 @@ import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { STORIES } from './stories.js';
 import { inWindow, newestRelease, shouldFlyIn, planetSubtitle, planetStory, teffToRGB, escapeHTML } from './newworlds.mjs';
+import { starCard, distanceFacts, fmtLy, SPECTRAL_HOOKS, HYG_SOURCE } from './catalog.mjs';
+import { initSearch } from './search.js';
 
 // ───────────────────────── units & helpers ─────────────────────────
 // Scene unit: 1 AU. Frame: J2000 equatorial (x → vernal equinox, z → celestial north).
@@ -391,6 +393,9 @@ function planeBasis(normal) {
   return [e1, e2];
 }
 let starData = null; // filled after load
+// catalog star index → story focusable id (stars drawn by a story system or followed by a story stop)
+const starOwner = new Map();
+const storyStarIdx = {}; // story id → its main catalog star
 function makeStarSystem(def) {
   const group = new THREE.Group(); scene.add(group);
   const sys = { id: def.id, story: def.story, bodies: [], group, hostPos: def.pos.clone(), vHelio: def.vHelio || V(), isStory: true };
@@ -418,7 +423,7 @@ function initStorySystems() {
   const findStar = name => starData.names.find(n => n[1] === name);
   const starPos = idx => V(starData.buf[idx * 8], starData.buf[idx * 8 + 1], starData.buf[idx * 8 + 2]).multiplyScalar(PC_AU);
   const starVel = idx => V(starData.buf[idx * 8 + 3], starData.buf[idx * 8 + 4], starData.buf[idx * 8 + 5]).multiplyScalar(PC_AU / YEAR_D); // AU/day
-  const hide = idx => { starData.hidden.push(idx); };
+  const hide = (idx, owner) => { starData.hidden.push(idx); if (owner) { starOwner.set(idx, owner); if (!(owner in storyStarIdx)) storyStarIdx[owner] = idx; } };
   const defs = [];
   // Alpha Centauri A+B (a = 23.4 AU, e = 0.52, P = 79.9 yr, masses 1.08 / 0.91)
   const acA = findStar('Rigil Kentaurus'), acB = findStar('Toliman');
@@ -429,7 +434,7 @@ function initStorySystems() {
         { name: 'Alpha Centauri A', star: true, r: 1.22 * RSUN_AU, color: '#fff2d6', binary: { a: 23.4, e: 0.52, P: 79.91 * YEAR_D, k: -mB / M } },
         { name: 'Alpha Centauri B', star: true, r: 0.86 * RSUN_AU, color: '#ffd29a', binary: { a: 23.4, e: 0.52, P: 79.91 * YEAR_D, k: mA / M } },
       ] });
-    hide(acA[0]); if (acB) hide(acB[0]);
+    hide(acA[0], 'alphacen'); if (acB) hide(acB[0], 'alphacen');
   }
   // Sirius A+B (a = 19.8 AU, e = 0.59, P = 50.1 yr, masses 2.06 / 1.02)
   const si = findStar('Sirius');
@@ -440,7 +445,7 @@ function initStorySystems() {
         { name: 'Sirius A', star: true, r: 1.71 * RSUN_AU, color: '#cfe0ff', marker: 22, binary: { a: 19.8, e: 0.59, P: 50.13 * YEAR_D, k: -mB / M } },
         { name: 'Sirius B', star: true, r: 0.0084 * RSUN_AU, color: '#f2f6ff', marker: 9, binary: { a: 19.8, e: 0.59, P: 50.13 * YEAR_D, k: mA / M } },
       ] });
-    hide(si[0]);
+    hide(si[0], 'sirius');
   }
   // TRAPPIST-1 (RA 346.622°, Dec −5.041°, 12.47 pc) – not in HYG (too faint)
   {
@@ -455,12 +460,12 @@ function initStorySystems() {
   if (be) {
     defs.push({ id: 'betelgeuse', story: 'betelgeuse', name: 'Betelgeuse', pos: starPos(be[0]), vHelio: starVel(be[0]), normal: V(0, 0, 1), defaultDist: 22,
       bodies: [{ name: 'Betelgeuse', star: true, r: 750 * RSUN_AU, color: '#ff8a4a', marker: 30 }] });
-    hide(be[0]);
+    hide(be[0], 'betelgeuse');
   }
   defs.push(...moreStoryDefs({ findStar, starPos, starVel, hide }));
   for (const d of defs) {
     const sys = makeStarSystem(d);
-    focusables[d.id] = { name: d.name, getPos: d.focusFn ? o => d.focusFn(simDays(), o).add(sys.hostPos) : o => o.copy(sys.hostPos), radius: 0.02, story: d.story, defaultDist: d.defaultDist, sys };
+    focusables[d.id] = { name: d.name, getPos: d.focusFn ? o => d.focusFn(simDays(), o).add(sys.hostPos) : o => o.copy(sys.hostPos), radius: 0.02, story: d.story, defaultDist: d.defaultDist, sys, starIdx: storyStarIdx[d.id] };
     d.after?.(sys);
   }
   addMovingStarStops();
@@ -499,7 +504,7 @@ function moreStoryDefs({ findStar, starPos, starVel, hide }) {
       bodies: [{ name: 'Proxima Centauri', star: true, r: 0.141 * RSUN_AU, color: '#ff6a3d', marker: 18 },
         { name: 'Proxima d', r: RE_AU * 0.65, color: '#f5b48a', marker: 5, orbit: { a: 0.02881, P: 5.12338, phase: 0.6 } },
         { name: 'Proxima b', r: RE_AU, color: '#8fd0ff', marker: 7, orbit: { a: 0.04848, P: 11.18465, phase: 0.1 } }] });
-    hide(px[0]);
+    hide(px[0], 'proxima');
   }
   // 51 Pegasi b (archive: P 4.2307966 d, a 0.052 AU, M sin i 0.464 MJ; star 1.07 Msun, 1.19 Rsun). Star wobble ×300.
   const pg = findStar('Helvetios');
@@ -509,7 +514,7 @@ function moreStoryDefs({ findStar, starPos, starVel, hide }) {
     defs.push({ id: 'peg51', story: 'peg51', name: '51 Pegasi', pos: starPos(pg[0]), vHelio: starVel(pg[0]), normal: V(-0.3, 0.4, 0.86), defaultDist: 0.16,
       bodies: [{ name: '51 Pegasi', star: true, r: 1.19 * RSUN_AU, color: '#fff0c8', marker: 18, binary: { ...bin, k: -(mP / (mS + mP)) * WOBBLE } },
         { name: '51 Pegasi b', r: RJ_AU, color: '#ffb36b', marker: 8, binary: { ...bin, k: mS / (mS + mP) } }] });
-    hide(pg[0]);
+    hide(pg[0], 'peg51');
   }
   // Kepler-16 (Doyle et al. 2011; archive distance 75.0852 pc) – not in HYG (too faint). Transiting, so edge-on.
   {
@@ -535,7 +540,7 @@ function moreStoryDefs({ findStar, starPos, starVel, hide }) {
       bodies: [{ name: 'Algol A', star: true, r: 2.73 * RSUN_AU, color: '#c4d6ff', marker: 18, posFn: (t, o) => ab(t, o, -mB / mAB), P: 2.867328, orbitR: aIn * 0.3 },
         { name: 'Algol B', star: true, r: 3.48 * RSUN_AU, color: '#ffbf80', marker: 12, posFn: (t, o) => ab(t, o, mA / mAB), P: 2.867328, orbitR: aIn },
         { name: 'Algol C', star: true, r: 1.73 * RSUN_AU, color: '#fff3dc', marker: 12, posFn: (t, o) => outer(t, o).multiplyScalar(mAB / M), P: 680.168, orbitR: aOut * mAB / M }] });
-    hide(al[0]);
+    hide(al[0], 'algol');
   }
   // Polaris Aa–Ab (Evans et al. 2024: P 29.416 yr, a 129.55 mas at 136.90 pc, e 0.6354, T 2016.831; Aa 5.13 Msun, 46.27 Rsun; Ab 1.316 Msun)
   const po = findStar('Polaris');
@@ -544,7 +549,7 @@ function moreStoryDefs({ findStar, starPos, starVel, hide }) {
     defs.push({ id: 'polaris', story: 'polaris', name: 'Polaris', pos: starPos(po[0]), vHelio: starVel(po[0]), normal: V(0.5, -0.3, 0.8), defaultDist: 60,
       bodies: [{ name: 'Polaris Aa', star: true, r: 46.27 * RSUN_AU, color: '#fff1d0', marker: 22, binary: { ...bin, k: -mB / M } },
         { name: 'Polaris Ab', star: true, r: 1.2 * RSUN_AU, color: '#fff8ea', marker: 10, binary: { ...bin, k: mA / M } }] });
-    hide(po[0]);
+    hide(po[0], 'polaris');
   }
   // Mira + its 13-light-year ultraviolet tail (NASA/JPL GALEX). Tail drawn behind the star's catalog motion.
   const mi = findStar('Mira');
@@ -553,7 +558,7 @@ function moreStoryDefs({ findStar, starPos, starVel, hide }) {
     defs.push({ id: 'mira', story: 'mira', name: 'Mira', pos: starPos(mi[0]), vHelio: vel, normal: V(0, 0, 1), defaultDist: 1.4e6,
       bodies: [{ name: 'Mira', star: true, r: 350 * RSUN_AU, color: '#ff7a45', marker: 22 }],
       after: sys => sys.group.add(makeMiraTail(vel.lengthSq() ? vel.clone().normalize() : V(1, 0, 0))) });
-    hide(mi[0]);
+    hide(mi[0], 'mira');
   }
   // Sagittarius A* + S2 (GRAVITY 2020: a 125.058 mas at R0 8246.7 pc, e 0.884649, P 16.0455 yr, t_peri 2018.379, M 4.261e6 Msun)
   {
@@ -569,7 +574,7 @@ function moreStoryDefs({ findStar, starPos, starVel, hide }) {
 // ── Read-only stops (tap to read; not in the Tour, no narration). Numbers from the sources on each card. ──
 function readOnlyStoryDefs({ findStar, starPos, starVel, hide }) {
   const defs = [];
-  const hideNear = (ra, dec, sep = 0.05) => { const i = nearestStar(ra, dec, sep); if (i >= 0) hide(i); };
+  const hideNear = (ra, dec, sep = 0.05, owner) => { const i = nearestStar(ra, dec, sep); if (i >= 0) hide(i, owner); };
   // Vega: polar 2.31, equatorial 2.87 Rsun (Peterson et al. 2006); pole points almost at us
   const ve = findStar('Vega');
   if (ve) {
@@ -577,7 +582,7 @@ function readOnlyStoryDefs({ findStar, starPos, starVel, hide }) {
     defs.push({ id: 'vega', story: 'vega', name: 'Vega', pos, vHelio: starVel(ve[0]), normal: V(0, 0, 1), defaultDist: 0.16,
       bodies: [{ name: 'Vega', star: true, r: 2.87 * RSUN_AU, color: '#dfe8ff', marker: 22 }],
       after: sys => { const m = sys.bodies[0].mesh; m.quaternion.setFromUnitVectors(V(0, 0, 1), pos.clone().normalize()); m.scale.set(1, 1, 2.31 / 2.87); } });
-    hide(ve[0]);
+    hide(ve[0], 'vega');
   }
   // 61 Cygni A+B (not named in HYG): Izmailov et al. 2021 P 704.9 yr, e 0.435, M 1.286 Msun → a ≈ 86 AU; mass split from Kervella 2008 (0.690 / 0.605)
   {
@@ -588,7 +593,7 @@ function readOnlyStoryDefs({ findStar, starPos, starVel, hide }) {
       defs.push({ id: 'cyg61', story: 'cyg61', name: '61 Cygni', pos: starPos(iA), vHelio: starVel(iA), normal: V(0.4, 0.3, 0.86), defaultDist: 260,
         bodies: [{ name: '61 Cygni A', star: true, r: 0.665 * RSUN_AU, color: '#ffc480', marker: 16, binary: { ...bin, k: -mB / M } },
           { name: '61 Cygni B', star: true, r: 0.595 * RSUN_AU, color: '#ffa860', marker: 14, binary: { ...bin, k: mA / M } }] });
-      hide(iA); hideNear(316.7303, 38.7421);
+      hide(iA, 'cyg61'); hideNear(316.7303, 38.7421, 0.05, 'cyg61');
     }
   }
   // Luhman 16 A+B (not in HYG): RA 162.3149°, Dec −53.3184°, 1.996 pc; a 3.52 AU, e 0.344, P 26.55 yr, 35.4 / 29.4 MJ (HST 2024)
@@ -605,7 +610,7 @@ function readOnlyStoryDefs({ findStar, starPos, starVel, hide }) {
     defs.push({ id: 'capella', story: 'capella', name: 'Capella', pos: starPos(ca[0]), vHelio: starVel(ca[0]), normal: V(0.2, -0.4, 0.9), defaultDist: 2.6,
       bodies: [{ name: 'Capella Aa', star: true, r: 11.98 * RSUN_AU, color: '#ffd98f', marker: 20, binary: { ...bin, k: -mB / M } },
         { name: 'Capella Ab', star: true, r: 8.83 * RSUN_AU, color: '#fff0c0', marker: 18, binary: { ...bin, k: mA / M } }] });
-    hide(ca[0]);
+    hide(ca[0], 'capella');
   }
   // Cygnus X-1 (Miller-Jones et al. 2021): 2.22 kpc, BH 21.2 Msun, O star 40.6 Msun / 22.3 Rsun, a 0.244 AU, e 0.019, P 5.6 d
   {
@@ -615,7 +620,7 @@ function readOnlyStoryDefs({ findStar, starPos, starVel, hide }) {
     defs.push({ id: 'cygx1', story: 'cygx1', name: 'Cygnus X-1', pos, normal: V(0.3, 0.6, 0.74), defaultDist: 2.2,
       bodies: [{ name: 'HDE 226868', star: true, r: 22.3 * RSUN_AU, color: '#bcd0ff', marker: 20, binary: { ...bin, k: -mBH / M } },
         { name: 'Cygnus X-1 black hole', r: rs, color: '#000000', markerColor: '#ffae66', marker: 14, binary: { ...bin, k: mO / M } }] });
-    const cx = findStar('Cygnus X-1'); if (cx) hide(cx[0]); // HYG's Hipparcos distance (~1,940 ly) is superseded
+    const cx = findStar('Cygnus X-1'); if (cx) hide(cx[0], 'cygx1'); // HYG's Hipparcos distance (~1,940 ly) is superseded
   }
   // Eta Carinae: ~7,500 ly (NASA); 5.54-yr orbit; e ≈ 0.9 and a ≈ 15.4 AU as in published colliding-wind models (periastron ≈ Mars' distance)
   {
@@ -625,7 +630,7 @@ function readOnlyStoryDefs({ findStar, starPos, starVel, hide }) {
       bodies: [{ name: 'Eta Carinae A', star: true, r: 100 * RSUN_AU, color: '#cfe0ff', marker: 22, binary: { ...bin, k: -mB / M } },
         { name: 'Eta Carinae B', star: true, r: 20 * RSUN_AU, color: '#e8f0ff', marker: 14, binary: { ...bin, k: mA / M } }],
       after: sys => sys.group.add(makeHomunculus(pos.clone().normalize())) });
-    hideNear(161.2650, -59.6845);
+    hideNear(161.2650, -59.6845, 0.05, 'etacar');
   }
   return defs;
 }
@@ -731,6 +736,7 @@ function addMovingStarStops() {
   }
   for (const { id, idx } of stops) {
     if (idx === undefined || idx < 0) continue;
+    starOwner.set(idx, id);
     const p = V(), v = V();
     focusables[id] = { name: STORIES[id].title, story: id, radius: 0.01, defaultDist: 40, starIdx: idx,
       getPos: o => { p.set(starData.pos[idx * 3], starData.pos[idx * 3 + 1], starData.pos[idx * 3 + 2]); v.set(starData.vel[idx * 3], starData.vel[idx * 3 + 1], starData.vel[idx * 3 + 2]); return o.copy(p).addScaledVector(v, simYears()); } };
@@ -1080,24 +1086,60 @@ function flyTo(id, dist, dur, lookFrom) {
   cam.focusId = id;
   showCard(f.story ? (typeof f.story === 'string' ? STORIES[f.story] : f.story) : null, id);
 }
+const STAR_FLY_DIST = 6 * LY_AU; // far enough out to see the star's neighbors
 function flyToStar(idx) {
-  const n = starData.names.find(x => x[0] === idx);
+  const owner = starOwner.get(idx);
+  if (owner && focusables[owner]) { flyTo(owner); return; } // a story star: use its story stop and card
+  if (!starData?.pos || !(idx >= 0 && idx < starData.N)) return;
   const id = 'star:' + idx;
   const p = V(starData.pos[idx * 3], starData.pos[idx * 3 + 1], starData.pos[idx * 3 + 2]);
   const v = V(starData.vel[idx * 3], starData.vel[idx * 3 + 1], starData.vel[idx * 3 + 2]);
-  focusables[id] = { name: n ? n[1] : 'Star', getPos: o => o.copy(p).addScaledVector(v, simYears()), radius: 0.01, defaultDist: 40, starIdx: idx };
+  const story = starStory(idx);
+  focusables[id] = { name: story.title, getPos: o => o.copy(p).addScaledVector(v, simYears()), radius: 0.01, defaultDist: STAR_FLY_DIST, starIdx: idx, story };
   flyTo(id);
-  showCard(starStory(idx), id);
 }
+// Card for any catalog star: HYG fields only. Uses the search index when loaded, else the 460 named stars.
 function starStory(idx) {
-  const n = starData.names.find(x => x[0] === idx) || [idx, 'Unnamed star', 0, ''];
-  const ly = n[2]; const sp = (n[3] || '').trim(); const cls = sp[0] || '';
-  const hooks = { O: 'Blazing hot, blue, and short-lived.', B: 'Hot, blue-white, and young.', A: 'A brilliant white star.', F: 'A bright yellow-white star.', G: 'A star a lot like our Sun.', K: 'An orange star with a very long life ahead.', M: 'A cool red star.' };
-  const year = new Date().getFullYear() - Math.round(ly);
-  const facts = [`About ${ly.toLocaleString(undefined, { maximumFractionDigits: 1 })} light-years away.`];
-  if (ly > 1) facts.push(year > 0 ? `The light you see from it left around the year ${year}.` : `The light you see left about ${Math.round(ly).toLocaleString()} years ago, around ${Math.abs(year).toLocaleString()} BCE.`);
+  const row = searchUI.row(idx);
+  if (row) return starCard(row);
+  const n = starData?.names.find(x => x[0] === idx) || [idx, 'Unnamed star', 0, ''];
+  const ly = n[2]; const sp = (n[3] || '').trim();
+  const facts = distanceFacts(ly, new Date().getFullYear());
   if (sp) facts.push(`Spectral type ${sp}.`);
-  return { title: n[1], sub: `${ly.toLocaleString(undefined, { maximumFractionDigits: 1 })} light-years`, hook: hooks[cls] || 'One of the stars around us.', facts, source: 'HYG Database v4.1 (CC BY-SA 4.0)' };
+  return { title: n[1], sub: `Star · ${fmtLy(ly)} light-years`, hook: SPECTRAL_HOOKS[sp[0]] || 'One of the stars around us.', facts, source: HYG_SOURCE };
+}
+// Thin pulsing ring around a catalog star while it is the focus (fixed pixel size: not to scale).
+const FOCUS_RING_FRAG = `
+  uniform vec3 uColor; uniform float uOpacity;
+  #include <logdepthbuf_pars_fragment>
+  void main(){
+    #include <logdepthbuf_fragment>
+    float d = length(gl_PointCoord-0.5)*2.0;
+    float a = smoothstep(0.80, 0.86, d) * (1.0 - smoothstep(0.90, 0.96, d)) * uOpacity;
+    if (a < 0.005) discard;
+    gl_FragColor = vec4(uColor, a);
+  }`;
+const focusRing = (() => {
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+  const m = new THREE.ShaderMaterial({ uniforms: { uSize: { value: 40 }, uColor: { value: new THREE.Color('#9fc4ff') }, uOpacity: { value: 0 } },
+    vertexShader: MARKER_VERT, fragmentShader: FOCUS_RING_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const p = new THREE.Points(g, m); p.frustumCulled = false; p.renderOrder = 6; p.visible = false; scene.add(p); return p;
+})();
+let ringFade = 0;
+const reduceMotionMQ = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)'); } catch { return null; } })();
+function updateFocusRing(now, dtReal) {
+  const f = focusables[cam.focusId];
+  const on = !!f && f.starIdx !== undefined && !f.sys; // story systems draw their own stars
+  ringFade = clamp(ringFade + (on ? 1 : -1) * dtReal * 2.5, 0, 1);
+  focusRing.visible = ringFade > 0.01;
+  if (!focusRing.visible) return;
+  if (on) f.getPos(focusRing.position);
+  const zoomFade = 1 - smooth(7.4, 8.2, cam.logD); // gone once the view is far wider than the star's neighborhood
+  const reduce = reduceMotionMQ?.matches;
+  const pulse = reduce ? 0.75 : 0.6 + 0.25 * Math.sin(now * 0.0024);
+  const u = focusRing.material.uniforms;
+  u.uOpacity.value = pulse * ringFade * zoomFade;
+  u.uSize.value = 40 * renderer.getPixelRatio();
 }
 const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 function updateCamera(now) {
@@ -1157,6 +1199,7 @@ let lastTap = 0;
 canvas.addEventListener('pointerup', e => { if (drag.moved < 6) { const t = performance.now(); if (t - lastTap < 300) zoomBy(-0.6); lastTap = t; } });
 function zoomBy(dLog) { if (cam.anim) { cam.anim.toLog += dLog; } else cam.logD += dLog; }
 addEventListener('keydown', e => {
+  if (e.target instanceof Element && e.target.closest('input, textarea, select')) return; // typing in the search box
   if (e.key === '+' || e.key === '=') zoomBy(-0.25); if (e.key === '-') zoomBy(0.25);
   if (e.key === ' ') { togglePause(); e.preventDefault(); }
 });
@@ -1318,6 +1361,27 @@ $('#narrate').onclick = async () => {
   speaking = false; $('#narrate').classList.remove('on');
 };
 
+// ───────────────────────── search & Atlas ─────────────────────────
+const storyOf = f => f?.story ? (typeof f.story === 'string' ? STORIES[f.story] : f.story) : null;
+const searchUI = initSearch({
+  // every named place you can fly to (dynamic star:/new:here stops excluded)
+  places: () => Object.entries(focusables)
+    .filter(([id, f]) => f.name && !id.startsWith('star:') && id !== 'new:here')
+    .map(([id, f]) => {
+      const s = storyOf(f); const au = f.getPos(V()).length();
+      return { id, name: s?.title || f.name, alias: s?.title && s.title !== f.name ? f.name : '', sub: s?.sub || '', ly: au > 2000 ? au / LY_AU : null, isNew: !!s?.isNew };
+    }),
+  namedStars: () => starData?.names || null,     // [idx, name, ly, spect] for the 460 named stars
+  starsReady: () => !!starData?.pos,
+  starCount: () => starData?.N ?? 0,
+  storyForStar: idx => starOwner.get(idx) ?? null,
+  flyPlace: id => { stopTour(); flyTo(id, undefined, undefined, id === 'galaxy' ? galaxyLook() : undefined); }, // same as tapping its label
+  flyStar: idx => { stopTour(); flyToStar(idx); },
+  // Read: card only. The camera and its focus stay where they are.
+  readPlace: id => { const s = storyOf(focusables[id]); if (s) showCard(s, cam.focusId); },
+  readStar: idx => { const owner = starOwner.get(idx); showCard(owner ? storyOf(focusables[owner]) : starStory(idx), cam.focusId); },
+  closeOthers: () => { for (const sel of ['#sheet', '#about', '#newList']) $(sel).classList.remove('open'); card.classList.remove('open'); stopSpeaking(); },
+});
 function solarLook() { // above the plane of the planets, looking down at ~35°
   const side = new THREE.Vector3().crossVectors(ECL_N, V(1, 0, 0)).normalize();
   return ECL_N.clone().multiplyScalar(Math.sin(38 * deg)).addScaledVector(side, Math.cos(38 * deg));
@@ -1369,7 +1433,7 @@ document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => {
   if (settings.view === 'galaxy' && time.speedIdx < 4) setSpeed(5);
 });
 // settings sheet
-$('#settingsBtn').onclick = () => { $('#newList').classList.remove('open'); $('#sheet').classList.toggle('open'); };
+$('#settingsBtn').onclick = () => { searchUI.close(); $('#newList').classList.remove('open'); $('#sheet').classList.toggle('open'); };
 $('#sheetClose').onclick = () => $('#sheet').classList.remove('open');
 const bindRange = (id, key, fmt) => { const el = $(id); const out = $(id + 'Out'); const upd = () => { settings[key] = parseFloat(el.value); out.textContent = fmt(settings[key]); }; el.oninput = upd; upd(); };
 bindRange('#trailLen', 'trailLen', v => v < 0.35 ? 'Short' : v < 0.75 ? 'Medium' : 'Long');
@@ -1379,7 +1443,7 @@ $('#optLabels').onchange = e => settings.labels = e.target.checked;
 $('#optOrbits').onchange = e => settings.orbits = e.target.checked;
 $('#optAuto').onchange = e => { settings.autoSpiral = e.target.checked; $('#sunSpeed').disabled = settings.autoSpiral; };
 $('#sunSpeed').disabled = true;
-$('#aboutBtn').onclick = () => { $('#about').classList.add('open'); $('#sheet').classList.remove('open'); $('#newList').classList.remove('open'); };
+$('#aboutBtn').onclick = () => { searchUI.close(); $('#about').classList.add('open'); $('#sheet').classList.remove('open'); $('#newList').classList.remove('open'); };
 $('#aboutClose').onclick = () => $('#about').classList.remove('open');
 
 // toast
@@ -1421,7 +1485,7 @@ for (const ev of ['pointerdown', 'wheel', 'keydown']) addEventListener(ev, () =>
 const nwReducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 // The automatic fly-in may only start from the untouched opening shot.
 const nwIdleAtStart = () => cam.focusId === 'earth' && !cam.anim && !newWorlds.userActed && !card.classList.contains('open')
-  && !['#sheet', '#about', '#newList'].some(sel => $(sel)?.classList.contains('open'));
+  && !['#sheet', '#about', '#newList', '#searchPanel'].some(sel => $(sel)?.classList.contains('open'));
 const NW_RING_FRAG = `
   uniform vec3 uColor; uniform float uOpacity;
   #include <logdepthbuf_pars_fragment>
@@ -1514,10 +1578,10 @@ function buildNewList() {
     li.append(b); list.append(li);
   }
 }
-// Phones: keep the pill on the same row as Tour and Settings; drop the word "NEW" if it would wrap.
+// Phones: keep the pill on the same row as Search, Tour and Settings; drop the word "NEW" if it would wrap.
 function fitNewBtn() {
   const btn = $('#newBtn'); btn.classList.remove('compact');
-  if ($('#settingsBtn').getBoundingClientRect().top > $('#tourBtn').getBoundingClientRect().top + 4) btn.classList.add('compact');
+  if ($('#settingsBtn').getBoundingClientRect().top > btn.getBoundingClientRect().top + 4) btn.classList.add('compact');
 }
 function startNewFlyIn(newest) {
   const closest = list => list.filter(nwHasDist).sort((a, b) => a.sy_dist - b.sy_dist)[0];
@@ -1553,7 +1617,7 @@ async function initNewWorlds(starsReady) {
     $('#newBtn').setAttribute('aria-label', `${newWorlds.planets.length} new worlds from NASA`);
     $('#newBtn').hidden = false;
     fitNewBtn(); addEventListener('resize', fitNewBtn);
-    $('#newBtn').onclick = () => { $('#sheet').classList.remove('open'); $('#about').classList.remove('open'); $('#newList').classList.toggle('open'); };
+    $('#newBtn').onclick = () => { searchUI.close(); $('#sheet').classList.remove('open'); $('#about').classList.remove('open'); $('#newList').classList.toggle('open'); };
     $('#newClose').onclick = () => $('#newList').classList.remove('open');
     await introGone;
     const newest = newestRelease(newWorlds.planets);
@@ -1647,6 +1711,7 @@ function frame(now) {
     }
   }
   updateCamera(now);
+  updateFocusRing(now, dtReal);
   const Lc = Math.log10(Math.max(camera.position.length(), 1e-9)); camLogSun = Lc;
   const camDistTarget = Math.pow(10, cam.logD);
 

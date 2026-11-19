@@ -71,7 +71,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 #newBtn[hidden]{display:none}
 #newBtn .spark{color:var(--gold);font-size:12px;margin-right:-2px}
 #newBtn.compact .nwWord{display:none}
-@media (max-width:419px){ #newBtn{padding:0 11px;gap:5px} }
+@media (max-width:419px){
+  #newBtn{padding:0 11px;gap:5px}
+  /* phones: keep NEW · Search · Tour · Settings on one row; the scale name wraps instead of pushing the buttons */
+  #topBtns{gap:6px;flex-shrink:0;max-width:200px} #brand{min-width:0} #brand h1{letter-spacing:.38em;margin-right:-.38em}
+  #topBtns .pill.icon{width:34px} #tourBtn{padding:0 12px}
+}
 #viewSeg{display:flex;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:18px;padding:3px;border:1px solid var(--line);order:3}
 #viewSeg button{height:28px;padding:0 11px;border-radius:14px;font-size:12.5px;color:var(--dim)}
 #viewSeg button.sel{background:var(--star);color:#000}
@@ -126,6 +131,45 @@ input[type=range]{width:100%;accent-color:var(--gold)} input[type=range]:disable
 .nwFac{font-size:11.5px;color:var(--dim);font-weight:300}
 .x{width:30px;height:30px;border-radius:15px;display:grid;place-items:center;color:var(--dim)}
 
+/* search & Atlas */
+#searchPanel{display:flex;flex-direction:column;width:min(400px,calc(100vw - 24px));height:min(640px,calc(100vh - 140px));overflow:hidden;padding:14px 14px 0}
+.spHead{display:flex;gap:8px;align-items:center}
+#searchInput{flex:1;min-width:0;height:40px;border-radius:20px;border:1px solid var(--line);background:rgba(237,234,226,.06);color:var(--star);font:inherit;font-size:16px;font-weight:300;padding:0 16px;-webkit-appearance:none;appearance:none}
+#searchInput::placeholder{color:var(--dim)}
+#searchInput::-webkit-search-cancel-button{-webkit-appearance:none}
+.spTabs{display:flex;gap:4px;margin:12px 0 4px;border-bottom:1px solid var(--line)}
+.spTabs button{height:34px;padding:0 12px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid transparent;margin-bottom:-1px}
+.spTabs button[aria-selected=true]{color:var(--star);border-bottom-color:var(--gold)}
+#atlasCats,#atlasLetters{display:none}
+#searchPanel.atlas #atlasCats{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:8px 0 4px;flex:none}
+#atlasCats::-webkit-scrollbar{display:none}
+.spCat{height:30px;font-size:12.5px;padding:0 12px}
+.spCat[aria-pressed=true]{border-color:rgba(255,210,122,.6);color:var(--gold);background:rgba(255,210,122,.08)}
+#searchPanel.atlas #atlasLetters{display:flex;flex-wrap:wrap;gap:0;padding:2px 0 6px;flex:none}
+.spL{width:calc(100% / 14);min-width:22px;height:26px;font-size:11.5px;color:var(--star);border-radius:6px}
+.spL:disabled{color:rgba(142,154,175,.35);cursor:default}
+.spL:not(:disabled):active{background:rgba(255,210,122,.16)}
+#spStatus{font-size:12px;color:var(--dim);font-style:italic;font-weight:300;padding:8px 2px 0}
+#spStatus[hidden]{display:none}
+#spList{list-style:none;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;position:relative;padding-bottom:calc(var(--sab) + 12px);margin:0 -14px;padding-left:14px;padding-right:14px}
+.spRow{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);min-height:56px}
+.spLetter + .spRow{border-top:0}
+.spText{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.spName{font-size:14.5px;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spSub{font-size:12px;color:var(--dim);font-weight:300;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spActs{display:flex;gap:6px;flex:none}
+.spBtn{height:32px;padding:0 11px;font-size:12.5px}
+.spBtn:disabled{opacity:.4;cursor:default}
+.spBtn:not(:disabled):active{border-color:var(--gold);color:var(--gold)}
+.spLetter{font-size:11px;letter-spacing:.24em;color:var(--gold);padding:12px 0 4px;font-weight:500}
+.spEmpty{font-size:13px;color:var(--dim);font-weight:300;padding:14px 2px;line-height:1.5}
+@media (max-width:819px){
+  #searchPanel{top:auto;bottom:0;left:0;right:0;width:auto;height:80vh;height:80dvh;max-height:none;border-radius:20px 20px 0 0;border-bottom:0;transform:translateY(16px);
+    padding-left:calc(var(--sal) + 16px);padding-right:calc(var(--sar) + 16px)}
+  #searchPanel.open{transform:none}
+  #spList{margin:0 calc(-16px - var(--sar)) 0 calc(-16px - var(--sal));padding-left:calc(var(--sal) + 16px);padding-right:calc(var(--sar) + 16px)}
+}
+
 #toast{position:fixed;left:50%;top:calc(var(--sat) + 104px);transform:translate(-50%,-6px);background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);
   padding:9px 16px;border-radius:18px;font-size:13px;font-weight:300;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;max-width:88vw;text-align:center}
 #toast.on{opacity:1;transform:translate(-50%,0)}
@@ -163,6 +207,7 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
   <div id="topBtns">
     <div id="viewSeg" role="group" aria-label="Motion view"><button data-v="sun" class="sel">Sun view</button><button data-v="galaxy">Galaxy view</button></div>
     <button class="pill" id="newBtn" hidden aria-label="New worlds from NASA"><span class="spark">✦</span><span id="newCount"></span><span class="nwWord">NEW</span></button>
+    <button class="pill icon" id="searchBtn" aria-label="Search" aria-expanded="false" aria-controls="searchPanel" title="Search (/)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg></button>
     <button class="pill" id="tourBtn">Tour</button>
     <button class="pill icon" id="settingsBtn" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
   </div>
@@ -235,6 +280,21 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
   <h2>New worlds <button class="x" id="newClose" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button></h2>
   <p class="nwIntro">Added to NASA's confirmed planets in the last 90 days</p>
   <ul id="newItems"></ul>
+</div>
+
+<div class="sheet" id="searchPanel" role="dialog" aria-label="Search and Atlas">
+  <div class="spHead">
+    <input id="searchInput" type="search" placeholder="Search stars, planets, places" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Search stars, planets and places" aria-controls="spList">
+    <button class="x" id="searchClose" aria-label="Close search"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
+  </div>
+  <div class="spTabs" role="tablist" aria-label="Find by">
+    <button role="tab" data-tab="search" aria-selected="true" aria-controls="spList">Search</button>
+    <button role="tab" data-tab="atlas" aria-selected="false" aria-controls="spList" tabindex="-1">Atlas</button>
+  </div>
+  <div id="atlasCats"></div>
+  <div id="atlasLetters" aria-label="Jump to letter"></div>
+  <p id="spStatus" role="status" hidden></p>
+  <ul id="spList"></ul>
 </div>
 
 <div id="toast"></div>

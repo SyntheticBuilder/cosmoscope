@@ -314,3 +314,64 @@ export function search(index, query, limit = 30) {
     return { type: 'star', idx: h.i, name: starNames(r)[0] || `Star ${h.i}`, kind: 'Star', ly: r.ly };
   });
 }
+
+// Replace the non-star entries (places, constellations…) of an index without rebuilding the stars.
+export function setPlaces(index, extras = []) {
+  index.places = extras.map((e) => ({ e, key: normalize(e.name) })).filter((p) => p.key);
+  return index;
+}
+
+// ── Catalog-only star card (HYG fields only; nothing invented) ──
+export const SPECTRAL_HOOKS = {
+  O: 'Blazing hot, blue, and short-lived.', B: 'Hot, blue-white, and young.', A: 'A brilliant white star.',
+  F: 'A bright yellow-white star.', G: 'A star a lot like our Sun.', K: 'An orange star with a very long life ahead.', M: 'A cool red star.',
+};
+const SPECTRAL_WORDS = {
+  O: 'a very hot blue star', B: 'a hot blue-white star', A: 'a white star', F: 'a yellow-white star',
+  G: 'a yellow star, the same class as the Sun', K: 'an orange star', M: 'a cool red star',
+  D: 'a white dwarf', L: 'a brown dwarf', T: 'a brown dwarf', Y: 'a brown dwarf',
+};
+// Plain words for a spectral type, judged only by an unambiguous first letter ('' when unsure).
+export function spectralWords(spect) {
+  const c = String(spect || '').trim()[0] || '';
+  return SPECTRAL_WORDS[c] || '';
+}
+export const fmtLy = (ly) => ly.toLocaleString('en-US', { maximumFractionDigits: ly < 100 ? 2 : ly < 1000 ? 1 : 0 });
+const fmtMag = (m) => String(m).replace('-', '−');
+
+// Light-travel facts shared by every star card.
+export function distanceFacts(ly, nowYear) {
+  const facts = [`About ${ly.toLocaleString('en-US', { maximumFractionDigits: 1 })} light-years away.`];
+  const year = nowYear - Math.round(ly);
+  if (ly > 1) facts.push(year > 0 ? `The light you see from it left around the year ${year}.` : `The light you see left about ${Math.round(ly).toLocaleString('en-US')} years ago, around ${Math.abs(year).toLocaleString('en-US')} BCE.`);
+  return facts;
+}
+
+export const HYG_SOURCE = 'HYG Database v4.1 (CC BY-SA 4.0)';
+
+export function starCard(row, nowYear = new Date().getFullYear()) {
+  const names = starNames(row);
+  const title = names[0] || 'Unnamed star';
+  const sp = String(row.spect || '').trim();
+  const cls = sp[0] || '';
+  const facts = row.ly != null ? distanceFacts(row.ly, nowYear) : [];
+  if (sp) {
+    const w = spectralWords(sp);
+    facts.push(w ? `Spectral type ${sp}: ${w}.` : `Spectral type ${sp}.`);
+  }
+  if (row.mag != null) {
+    facts.push(row.mag <= 6
+      ? `Brightness: magnitude ${fmtMag(row.mag)}, visible to the naked eye from Earth.`
+      : `Brightness: magnitude ${fmtMag(row.mag)}, too faint to see from Earth without a telescope.`);
+  }
+  const con = CONSTELLATIONS[row.con];
+  if (con) facts.push(`In the constellation ${con.name}.`);
+  const other = names.slice(1, 5);
+  if (other.length) facts.push(`Also known as ${other.join(', ')}.`);
+  return {
+    title,
+    sub: row.ly != null ? `Star · ${fmtLy(row.ly)} light-years` : 'Star',
+    hook: SPECTRAL_HOOKS[cls] || 'One of the stars around us.',
+    facts, source: HYG_SOURCE,
+  };
+}
