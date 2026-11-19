@@ -32,6 +32,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 .lbl.minor .t{font-size:12px;color:var(--dim)}
 .lbl.star{color:var(--dim)} .lbl.star .t{font-size:11.5px;font-weight:300}
 .lbl.story .t{font-size:12.5px;letter-spacing:.24em;font-weight:500}
+.lbl.newp{margin-left:20px} .lbl.newp.flip{margin-left:-18px}
+.lbl.newp .t{font-size:12.5px;letter-spacing:.04em}
+.lbl.newp .s{color:var(--gold);letter-spacing:.22em;font-size:10px;font-weight:500}
 .lbl.here{color:var(--gold)} .lbl.here .t{font-style:italic;font-weight:300}
 
 /* top bar */
@@ -64,6 +67,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 #live::before{content:"";width:6px;height:6px;border-radius:3px;background:var(--dim)}
 #live.on{color:var(--gold);border-color:rgba(255,210,122,.5)} #live.on::before{background:#ff5a4a;box-shadow:0 0 8px #ff5a4a}
 #topBtns{flex-wrap:wrap;justify-content:flex-end;max-width:62%}
+#newBtn[hidden]{display:none}
+#newBtn .spark{color:var(--gold);font-size:12px;margin-right:-2px}
+#newBtn.compact .nwWord{display:none}
+@media (max-width:419px){ #newBtn{padding:0 11px;gap:5px} }
 #viewSeg{display:flex;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:18px;padding:3px;border:1px solid var(--line);order:3}
 #viewSeg button{height:28px;padding:0 11px;border-radius:14px;font-size:12.5px;color:var(--dim)}
 #viewSeg button.sel{background:var(--star);color:#000}
@@ -78,6 +85,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 #cardGrab{display:block;width:100%;height:18px;position:relative}
 #cardGrab::after{content:"";position:absolute;left:50%;top:7px;width:36px;height:4px;border-radius:2px;background:rgba(237,234,226,.25);transform:translateX(-50%)}
 #cardHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+#cardNew{display:inline-block;font-size:10px;letter-spacing:.24em;font-weight:500;color:var(--gold);border:1px solid rgba(255,210,122,.45);border-radius:9px;padding:2px 6px 2px 8px;margin:2px 0 6px}
+#cardNew[hidden]{display:none}
 #cardTitle{font-size:17px;font-weight:500;letter-spacing:.22em}
 #cardSub{font-size:12.5px;color:var(--dim);margin-top:2px;font-weight:300}
 #cardClose{width:30px;height:30px;border-radius:15px;display:grid;place-items:center;color:var(--dim);flex:none}
@@ -107,6 +116,13 @@ input[type=range]{width:100%;accent-color:var(--gold)} input[type=range]:disable
 #about h3{font-size:13px;font-weight:500;margin:14px 0 6px;color:var(--star)}
 #about li{font-size:12.5px;line-height:1.5;font-weight:300;color:var(--dim);margin-left:16px;margin-bottom:4px}
 #about a{color:var(--blue)}
+.nwIntro{font-size:12px;color:var(--dim);font-weight:300;margin:-6px 0 10px;line-height:1.45}
+#newItems{list-style:none}
+.nwRow{display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;padding:10px 0;border-top:1px solid var(--line);gap:2px}
+.nwRow:active{background:rgba(255,210,122,.08)}
+.nwName{font-size:14px;letter-spacing:.02em}
+.nwSub{font-size:12px;color:#d9d6ce;font-weight:300}
+.nwFac{font-size:11.5px;color:var(--dim);font-weight:300}
 .x{width:30px;height:30px;border-radius:15px;display:grid;place-items:center;color:var(--dim)}
 
 #toast{position:fixed;left:50%;top:calc(var(--sat) + 104px);transform:translate(-50%,-6px);background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);
@@ -145,6 +161,7 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
   <div id="brand"><h1>COSMOSCOPE</h1><div id="scale">Planet</div><div id="scaleDist"></div></div>
   <div id="topBtns">
     <div id="viewSeg" role="group" aria-label="Motion view"><button data-v="sun" class="sel">Sun view</button><button data-v="galaxy">Galaxy view</button></div>
+    <button class="pill" id="newBtn" hidden aria-label="New worlds from NASA"><span class="spark">✦</span><span id="newCount"></span><span class="nwWord">NEW</span></button>
     <button class="pill" id="tourBtn">Tour</button>
     <button class="pill icon" id="settingsBtn" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
   </div>
@@ -152,7 +169,7 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
 
 <div id="card" role="dialog" aria-live="polite">
   <button id="cardGrab" aria-label="Collapse card"></button>
-  <div id="cardHead"><div><div id="cardTitle"></div><div id="cardSub"></div></div>
+  <div id="cardHead"><div><span id="cardNew" hidden>NEW</span><div id="cardTitle"></div><div id="cardSub"></div></div>
     <button id="cardClose" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button></div>
   <div id="cardBody">
     <p id="cardHook"></p>
@@ -202,14 +219,20 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
     <li>Planet & Moon positions: Astronomy Engine by Don Cross (MIT), computed live</li>
     <li>Earth imagery: NASA Blue Marble & Black Marble. Moon imagery: NASA</li>
     <li>Story facts: NASA, ESA, ESO, NASA Exoplanet Archive (sources on each card)</li>
+    <li>New worlds: NASA Exoplanet Archive, refreshed daily. Planets NASA confirmed in the last 90 days, placed at their measured distances</li>
     <li>Milky Way, nearby galaxy shapes and the galaxy web: illustrations based on current maps</li>
   </ul>
   <h3>Coming next</h3>
   <ul>
-    <li>Live feed of newly confirmed exoplanets from NASA (needs Cosmoscope’s own website)</li>
     <li>Real galaxy maps from the SDSS and DESI surveys</li>
     <li>ESA Gaia stars by the millions</li>
   </ul>
+</div>
+
+<div class="sheet" id="newList">
+  <h2>New worlds <button class="x" id="newClose" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button></h2>
+  <p class="nwIntro">Added to NASA's confirmed planets in the last 90 days</p>
+  <ul id="newItems"></ul>
 </div>
 
 <div id="toast"></div>
