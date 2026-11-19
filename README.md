@@ -13,7 +13,7 @@ Start hovering over Earth, then pinch or scroll outward through the Solar System
 - **109,000 real stars** from the HYG catalog, at their measured distances and drifting with their measured motions.
 - **Galaxy view.** Turns ordinary orbits into the spirals they really trace as the Sun races around the Milky Way.
 - **Story stops and a guided tour.** Each stop has a short card with a source for every fact, plus optional narration.
-- **New worlds.** Planets added to NASA's Exoplanet Archive in the last 90 days, refreshed daily, with a one-time fly-in to the newest find.
+- **New worlds.** Planets added to NASA's Exoplanet Archive in the last 90 days, refreshed every 6 hours, with a one-time fly-in to the newest find.
 - **Time controls**, from live up to a million years per second, forwards or backwards.
 
 Anything drawn bigger or brighter than real life is labeled "not to scale" on screen.
@@ -34,7 +34,7 @@ npx esbuild --servedir=dist --serve=8080          # open http://localhost:8080
 `npm test` runs the automatic tests.
 
 ## How it's published
-A GitHub Actions workflow (`.github/workflows/site.yml`) runs on every push to `main` and once a day. It builds the site, fetches the newest planets from NASA, and deploys to GitHub Pages.
+A GitHub Actions workflow (`.github/workflows/site.yml`) runs on every push to `main` and every 6 hours. It builds the site, fetches the newest planets from NASA, and deploys to GitHub Pages.
 
 ## License
 Code: MIT (see `LICENSE`). Imagery and data belong to their sources listed above (NASA imagery is public domain; HYG catalog is CC BY-SA).
