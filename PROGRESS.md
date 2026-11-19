@@ -1,5 +1,8 @@
 # Cosmoscope progress
 
+**Live:** https://syntheticbuilder.github.io/cosmoscope/ · **Repo:** https://github.com/SyntheticBuilder/cosmoscope (MIT)
+Launched Nov 19, 2026. NASA's archive was returning 503 at launch, so the first deploy has no `new_planets.json` (no NEW pill) until a daily run succeeds.
+
 ## v1 prototype (Nov 19, 2026)
 Done:
 - Opens hovering over Earth (real day/night line, real rotation, NASA Blue/Black Marble)
