@@ -4,6 +4,8 @@
 
 ▶ **Live:** https://syntheticbuilder.github.io/cosmoscope/
 
+![Cosmoscope showing Proxima Centauri's planets and their story card](docs/screenshot.jpg)
+
 Start hovering over Earth, then pinch or scroll outward through the Solar System, the nearby stars, the Milky Way, the Local Group and the cosmic web, all the way to the edge of the observable universe. Speed up time and watch it move: planets dragged through the galaxy in spiral trails, binary stars circling each other, stars drifting across the sky.
 
 ## What's inside
