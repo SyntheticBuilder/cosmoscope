@@ -33,3 +33,6 @@ npx esbuild --servedir=dist --serve=8080          # open http://localhost:8080
 
 ## How it's published
 A GitHub Actions workflow (`.github/workflows/site.yml`) runs on every push to `main` and once a day. It builds the site, fetches the newest planets from NASA, and deploys to GitHub Pages.
+
+## License
+Code: MIT (see `LICENSE`). Imagery and data belong to their sources listed above (NASA imagery is public domain; HYG catalog is CC BY-SA).
