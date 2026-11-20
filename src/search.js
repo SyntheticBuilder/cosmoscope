@@ -272,7 +272,9 @@ export function initSearch(api) {
   addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && isOpen()) { e.preventDefault(); e.stopImmediatePropagation(); close(); return; }
     if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof Element && e.target.closest('input, textarea, select'))) {
-      e.preventDefault(); open();
+      e.preventDefault();
+      if (document.body.classList.contains('clean')) document.getElementById('cleanBtn')?.click(); // bring controls back first
+      open();
     }
   }, true);
 
