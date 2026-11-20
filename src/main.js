@@ -8,7 +8,7 @@ import { inWindow, newestRelease, shouldFlyIn, planetSubtitle, planetStory, teff
 import { starCard, distanceFacts, fmtLy, spectralHook, HYG_SOURCE } from './catalog.mjs';
 import { initSearch } from './search.js';
 import { segmentPairs, lineStars, meanDirection, perpendicular, constellationStats, constellationCard } from './constellations.mjs';
-import { focusPlaneOffset, zoomTowardOffset, loadPins, savePins, nextPinLetter, MAX_PINS } from './zoom.mjs';
+import { focusPlaneOffset, zoomTowardOffset, pinchEngaged, backOutOfSphere, loadPins, savePins, nextPinLetter, MAX_PINS } from './zoom.mjs';
 
 // ───────────────────────── units & helpers ─────────────────────────
 // Scene unit: 1 AU. Frame: J2000 equatorial (x → vernal equinox, z → celestial north).
@@ -23,6 +23,7 @@ const UNIVERSE_R = 46.5e9 * LY_AU;          // observable-universe radius (AU)
 const deg = Math.PI / 180;
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const radec = (raDeg, decDeg, dist = 1) => V(
   Math.cos(decDeg * deg) * Math.cos(raDeg * deg) * dist,
   Math.cos(decDeg * deg) * Math.sin(raDeg * deg) * dist,
@@ -1115,8 +1116,9 @@ const galaxyGlow = (() => {
   const p = new THREE.Points(g, m); p.frustumCulled = false; p.visible = false; scene.add(p); return p;
 })();
 
-// Star dust (illustration): a faint, fixed, seeded sky of tiny points at infinity, so space never reads as an empty
-// black screen. It turns with the view but never moves with zoom. One draw call; no depth test; drawn first.
+// Star dust (illustration, not real stars; noted in About and on screen where it is the main thing visible): a faint,
+// fixed, seeded sky of tiny points at infinity, so space never reads as an empty black screen. It turns with the view
+// but never moves with zoom. One draw call. Depth-tested at the far plane, so planets and moons hide it.
 const starDust = (() => {
   const n = isMobile ? 1800 : 3000; const r = rng(4242);
   const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), sz = new Float32Array(n);
@@ -1130,16 +1132,16 @@ const starDust = (() => {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('size', new THREE.BufferAttribute(sz, 1));
   const m = new THREE.ShaderMaterial({
-    uniforms: { uPx: { value: 1 } },
-    vertexShader: `attribute vec3 color; attribute float size; uniform float uPx; varying vec3 vC;
+    uniforms: { uPx: { value: 1 }, uOpacity: { value: 1 } },
+    vertexShader: `attribute vec3 color; attribute float size; uniform float uPx; uniform float uOpacity; varying vec3 vC;
       void main(){
         vec4 c = projectionMatrix * vec4(mat3(viewMatrix) * position, 0.0); // a direction: no translation, no distance
-        c.z = c.w * 0.99999;
-        vC = color; gl_PointSize = size * uPx; gl_Position = c;
+        c.z = c.w * 0.999999; // just inside the far plane: behind everything that writes depth
+        vC = color * uOpacity; gl_PointSize = size * uPx; gl_Position = c;
       }`,
     fragmentShader: `varying vec3 vC;
       void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = exp(-d*d*3.0); if (a < 0.05) discard; gl_FragColor = vec4(vC * a, 1.0); }`,
-    transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+    transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
   });
   const p = new THREE.Points(g, m); p.frustumCulled = false; p.renderOrder = -10; scene.add(p); return p;
 })();
@@ -1225,6 +1227,7 @@ function updateFocusRing(now, dtReal) {
   u.uSize.value = 40 * renderer.getPixelRatio();
 }
 const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const tmpRel = V();
 function updateCamera(now) {
   const tgt = V(); focusPos(cam.focusId, tgt);
   if (cam.anim) {
@@ -1243,9 +1246,16 @@ function updateCamera(now) {
   const f = focusables[cam.focusId];
   const minLog = Math.log10((f?.radius || 1e-6) * 1.15);
   cam.logD = clamp(cam.logD, Math.max(MIN_LOG, minLog), MAX_LOG);
-  const d = Math.pow(10, cam.logD);
-  const off = V(0, 0, d).applyQuaternion(cam.q);
-  camera.position.copy(cam.target).add(off);
+  let d = Math.pow(10, cam.logD);
+  const back = V(0, 0, 1).applyQuaternion(cam.q);
+  camera.position.copy(cam.target).addScaledVector(back, d);
+  // never inside a planet, moon, the Sun or a story star: stay ≥ 1.15 radii from every body's centre, by backing the
+  // camera out along its view (same target, longer distance), so the spot you aimed at stays in front of you
+  for (const sys of systems) for (const b of sys.bodies) {
+    if (!(b.radius > 0)) continue;
+    const s = backOutOfSphere(tmpRel.copy(camera.position).sub(b.pos), back, b.radius * 1.15);
+    if (s > 0) { camera.position.addScaledVector(back, s); d += s; cam.logD = Math.log10(d); }
+  }
   camera.quaternion.copy(cam.q);
   camera.near = Math.max(1e-8, d * 1e-4);
   camera.updateProjectionMatrix();
@@ -1257,12 +1267,15 @@ function rotateBy(dx, dy) {
   cam.q.multiply(qy).multiply(qx).normalize();
 }
 // pointer input
-const drag = { active: false, pts: new Map(), lastDist: 0, moved: 0, multi: false };
+const drag = { active: false, pts: new Map(), lastDist: 0, startDist: 0, engaged: false, moved: 0, multi: false };
 canvas.addEventListener('pointerdown', e => {
   if (drag.pts.size === 0) drag.multi = false; // a fresh gesture
   try { canvas.setPointerCapture(e.pointerId); } catch { } drag.pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); drag.active = true; drag.moved = 0;
   cam.vel.x = cam.vel.y = 0; if (cam.anim && drag.pts.size === 1) { /* allow looking around during flight */ }
-  if (drag.pts.size === 2) { const [a, b] = [...drag.pts.values()]; drag.lastDist = Math.hypot(a.x - b.x, a.y - b.y); drag.multi = true; drag.mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+  if (drag.pts.size === 2) {
+    const [a, b] = [...drag.pts.values()]; drag.startDist = drag.lastDist = Math.hypot(a.x - b.x, a.y - b.y);
+    drag.multi = true; drag.engaged = false; drag.mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
   hideHint();
 });
 canvas.addEventListener('pointermove', e => {
@@ -1272,39 +1285,52 @@ canvas.addEventListener('pointermove', e => {
     const s = 3.2 / innerHeight; rotateBy(dx * s, dy * s); cam.vel.x = dx * s; cam.vel.y = dy * s; drag.moved += Math.abs(dx) + Math.abs(dy);
   } else if (drag.pts.size === 2) {
     const [a, b] = [...drag.pts.values()]; const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    // a pinch only counts once the fingers really spread or close (a two-finger pan with jitter never zooms)
+    if (!drag.engaged) { if (!pinchEngaged(drag.startDist, dist)) return; drag.engaged = true; }
     // toward the midpoint where the pinch started (fixed, so fingers moving one at a time don't make it wobble)
     if (drag.lastDist > 0) zoomAt(-Math.log10(dist / drag.lastDist) * 2.2, drag.mid.x, drag.mid.y);
     drag.lastDist = dist;
   }
 });
-const endPtr = e => { drag.pts.delete(e.pointerId); if (drag.pts.size === 0) drag.active = false; drag.lastDist = 0; if (drag.pts.size === 1) cam.vel.x = cam.vel.y = 0; };
+const endPtr = e => { drag.pts.delete(e.pointerId); if (drag.pts.size === 0) drag.active = false; drag.lastDist = 0; drag.engaged = false; if (drag.pts.size === 1) cam.vel.x = cam.vel.y = 0; };
 canvas.addEventListener('pointerup', endPtr); canvas.addEventListener('pointercancel', endPtr);
 canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.deltaY * (e.ctrlKey ? 0.01 : 0.0022), e.clientX, e.clientY); hideHint(); }, { passive: false });
 let lastTap = 0;
 // double-tap zooms in (centred); the two finger-lifts that end a pinch are not taps
 canvas.addEventListener('pointerup', e => { if (drag.multi) { lastTap = 0; return; } if (drag.moved < 6) { const t = performance.now(); if (t - lastTap < 300) zoomBy(-0.6); lastTap = t; } });
 function zoomBy(dLog) { if (cam.anim) { cam.anim.toLog += dLog; } else cam.logD += dLog; }
-// A fixed point in space to orbit (free zoom, a stopped fly-in, a pin with no object). The camera stops following
-// what it followed before; an open card may stay.
-const freePos = V();
-function setFreeFocus(pos) {
-  freePos.copy(pos);
-  focusables['free:here'] ||= { name: 'Deep space', free: true, getPos: o => o.copy(freePos), radius: 1e-6, defaultDist: 1 };
+// Free focus: a spot kept as an OFFSET from the object you were following (its anchor), so the view rides along
+// with that object as it moves (time running, Tour speeds). With no anchor (a stopped fly-in, a pin whose object is
+// gone) the offset is an absolute position. An open card may stay.
+const free = { anchor: null, off: V() };
+function setFreeFocus(anchorId, off) {
+  const a = anchorId && hasOwn(focusables, anchorId) ? focusables[anchorId] : null;
+  free.anchor = a && !a.free && typeof a.getPos === 'function' ? anchorId : null;
+  free.off.copy(off);
+  focusables['free:here'] ||= { name: 'Deep space', free: true, radius: 1e-6, defaultDist: 1,
+    getPos: o => { if (free.anchor) focusables[free.anchor].getPos(o); else o.set(0, 0, 0); return o.add(free.off); } };
   cam.focusId = 'free:here';
 }
 // Zoom toward the spot under the pointer (clientX/Y), which stays put on screen. Zooming out, +/− keys and double-tap
 // stay centred; during a flight, wheel/pinch only change where the flight ends (no sideways shift mid-flight).
 function zoomAt(dLog, clientX, clientY) {
   if (cam.anim || !(dLog < 0)) { zoomBy(dLog); return; }
-  const rect = canvas.getBoundingClientRect();
-  const px = clientX - rect.left - rect.width / 2, py = clientY - rect.top - rect.height / 2;
-  if (Math.hypot(px, py) < Math.min(rect.width, rect.height) * 0.03) { zoomBy(dLog); return; } // at the centre: keep following
+  const w = innerWidth, h = innerHeight; // the canvas fills the window (no layout read per move)
+  if (!(w > 0 && h > 0)) { zoomBy(dLog); return; } // hidden / mid-rotation: no pointer maths with a 0×0 view
+  const px = clientX - w / 2, py = clientY - h / 2;
+  if (!Number.isFinite(px) || !Number.isFinite(py) || Math.hypot(px, py) < Math.min(w, h) * 0.03) { zoomBy(dLog); return; } // at the centre: keep following
   const toLog = Math.max(cam.logD + dLog, MIN_LOG); if (!(toLog < cam.logD)) return;
   const factor = Math.pow(10, toLog - cam.logD);
   // the spot on the plane through the target, perpendicular to the view: an offset relative to the distance
-  const off = focusPlaneOffset(px / (rect.width / 2), -py / (rect.height / 2), Math.pow(10, cam.logD), camera.fov * deg, rect.width / rect.height);
-  const t = zoomTowardOffset(cam.target, V(off.x, off.y, 0).applyQuaternion(cam.q), factor);
-  setFreeFocus(V(t.x, t.y, t.z)); cam.target.copy(freePos);
+  const o = focusPlaneOffset(px / (w / 2), -py / (h / 2), Math.pow(10, cam.logD), camera.fov * deg, w / h);
+  const offW = V(o.x, o.y, 0).applyQuaternion(cam.q);
+  const f = focusables[cam.focusId];
+  // the target moves (1 − factor) of the way to the spot; only the offset from the anchor changes
+  const t = zoomTowardOffset(f?.free ? free.off : { x: 0, y: 0, z: 0 }, offW, factor);
+  if (!Number.isFinite(t.x) || !Number.isFinite(t.y) || !Number.isFinite(t.z)) return;
+  if (f?.free) free.off.set(t.x, t.y, t.z);
+  else setFreeFocus(cam.focusId, V(t.x, t.y, t.z)); // leave the object's centre, keep riding along with it
+  focusPos('free:here', cam.target); // fresh anchor position (cam.target can be a frame old)
   cam.logD = toLog;
 }
 addEventListener('keydown', e => {
@@ -1615,8 +1641,9 @@ const chipsEl = $('#chips');
 CHIPS.forEach(([t, fn]) => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = t; b.onclick = () => { fn(); stopTour(); }; chipsEl.appendChild(b); });
 
 // ───────────────────────── pins (checkpoints) ─────────────────────────
-// "📍 Pin" saves the place (target, distance, orientation, followed object), not the time. Tap a letter to fly back;
-// press and hold (or right-click) to remove. Stored in localStorage; storage failures are silent.
+// "📍 Pin" saves the place, not the time: target, distance, orientation, and either the followed object or (after
+// free zoom) the object the spot rides along with plus the offset from it, with the absolute spot as a fallback.
+// Tap a letter to fly back; press and hold (touch), right-click or Delete to remove. Stored in localStorage.
 const pinStore = (() => { try { return localStorage; } catch { return null; } })();
 let pins = loadPins(pinStore);
 let pinClickBlockUntil = 0; // after a long press, swallow the click that follows (the next chip may slide under the finger)
@@ -1629,40 +1656,58 @@ pinAddBtn.onclick = () => {
   if (!id) { toast(`Up to ${MAX_PINS} pins: press and hold one to remove it.`); return; }
   const f = focusables[cam.focusId];
   const focus = !cam.anim && f && !f.free ? cam.focusId : null; // mid-flight or free: pin the spot itself
-  pins = [...pins, { id, t: cam.target.toArray(), q: [cam.q.x, cam.q.y, cam.q.z, cam.q.w], logD: cam.logD, focus }].sort((a, b) => a.id.localeCompare(b.id));
-  savePins(pinStore, pins); renderPins();
-  toast(`Pin ${id} saved: tap it to come back here.`);
+  const anchor = !cam.anim && f?.free && free.anchor ? free.anchor : null;
+  pins = [...pins, { id, t: cam.target.toArray(), q: [cam.q.x, cam.q.y, cam.q.z, cam.q.w], logD: cam.logD, focus, anchor, off: anchor ? free.off.toArray() : null }]
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const saved = savePins(pinStore, pins); renderPins();
+  toast(saved ? `Pin ${id} saved: tap it to come back here.` : `Pin ${id} added for this visit (this browser can't save it).`);
 };
+// A stored id is only used if it is a real, own entry (never an inherited name like "toString").
+function pinFocusId(id) {
+  if (typeof id !== 'string') return null;
+  if (id.startsWith('star:')) return /^star:\d+$/.test(id) ? ensureStarFocus(+id.slice(5)) : null; // made on demand
+  const f = hasOwn(focusables, id) ? focusables[id] : null;
+  return f && !f.free && typeof f.getPos === 'function' ? id : null;
+}
 function flyToPin(p) {
   stopTour();
-  let id = p.focus;
-  if (id && id.startsWith('star:')) id = ensureStarFocus(+id.slice(5)); // catalog stars are made on demand
-  if (!id || !focusables[id] || focusables[id].free) { // no object (or it's gone, e.g. the new-worlds feed is offline)
-    const fromTarget = cam.target.clone(); setFreeFocus(V(...p.t)); cam.target.copy(fromTarget); id = 'free:here';
+  let id = pinFocusId(p.focus);
+  if (!id) { // a free spot: relative to its object if that is still around, else the absolute spot
+    const anchor = pinFocusId(p.anchor);
+    const fromTarget = cam.target.clone();
+    if (anchor && p.off) setFreeFocus(anchor, V(...p.off)); else setFreeFocus(null, V(...p.t));
+    cam.target.copy(fromTarget); id = 'free:here';
   }
-  flyTo(id, Math.pow(10, p.logD));
+  flyTo(id, Math.pow(10, clamp(p.logD, MIN_LOG, MAX_LOG)));
   if (cam.anim) cam.anim.toQ = new THREE.Quaternion(...p.q).normalize();
 }
 function removePin(id) {
-  if (!pins.some(p => p.id === id)) return;
+  if (!pins.some(p => p.id === id)) return false;
   pins = pins.filter(p => p.id !== id); savePins(pinStore, pins); renderPins();
-  toast(`Pin ${id} removed`);
+  toast(`Pin ${id} removed`); return true;
 }
 function renderPins() {
   chipsEl.querySelectorAll('.pinChip').forEach(el => el.remove());
   let after = pinAddBtn;
   for (const p of pins) {
     const b = document.createElement('button'); b.className = 'chip pinChip'; b.textContent = p.id;
-    b.setAttribute('aria-label', `Fly to pin ${p.id}`); b.title = `Pin ${p.id}: tap to fly back, press and hold or right-click to remove`;
+    b.setAttribute('aria-label', `Pin ${p.id} — fly back; hold or press Delete to remove`);
+    b.title = `Pin ${p.id}: tap to fly back; press and hold, right-click or press Delete to remove`;
     let lp = null;
     const clear = () => { if (lp) clearTimeout(lp.t); lp = null; };
     b.addEventListener('pointerdown', e => {
-      if (e.button > 0) return; clear();
+      if (e.button > 0 || e.pointerType === 'mouse') return; // long press is for touch; mouse uses right-click
+      clear();
       lp = { x: e.clientX, y: e.clientY, t: setTimeout(() => { lp = null; pinClickBlockUntil = performance.now() + 700; removePin(p.id); }, 550) };
     });
     b.addEventListener('pointermove', e => { if (lp && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 8) clear(); }); // scrolling the row
     for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, clear);
     b.addEventListener('contextmenu', e => { e.preventDefault(); clear(); pinClickBlockUntil = performance.now() + 700; removePin(p.id); });
+    b.addEventListener('keydown', e => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      e.preventDefault(); e.stopPropagation();
+      if (removePin(p.id)) pinAddBtn.focus({ preventScroll: true }); // keep keyboard focus on the row
+    });
     b.onclick = () => { if (performance.now() < pinClickBlockUntil) return; flyToPin(p); };
     after.after(b); after = b;
   }
@@ -1873,7 +1918,7 @@ function startNewFlyIn(newest) {
     removeEventListener('pointerdown', cancel, true); removeEventListener('wheel', cancel, true); removeEventListener('keydown', cancel, true);
     if (!anim || cam.anim !== anim) return; // flight already finished or replaced
     // stop right here: hold the current view point instead of snapping on to the planet
-    cam.anim = null; setFreeFocus(cam.target);
+    cam.anim = null; setFreeFocus(null, cam.target);
     card.classList.remove('open'); stopSpeaking();
   };
   addEventListener('pointerdown', cancel, true); addEventListener('wheel', cancel, true); addEventListener('keydown', cancel, true);
@@ -1920,6 +1965,8 @@ function layerFades(Lc) {
   galaxyGlow.visible = glow > 0.01; galaxyGlow.material.uniforms.uOpacity.value = glow * 0.9;
   const web = smooth(10.6, 12.2, Lc);
   cosmicWeb.visible = web > 0.01; cosmicWeb.material.uniforms.uOpacity.value = web * 0.9;
+  const dust = 1 - smooth(15.42, 15.6, Lc); // none outside the observable-universe sphere
+  starDust.visible = dust > 0.01; starDust.material.uniforms.uOpacity.value = dust;
   const c = smooth(14.6, 15.4, Lc); cmb.visible = c > 0.01; cmb.material.uniforms.uOpacity.value = c * 0.55;
   return { solarVis };
 }
@@ -1930,8 +1977,9 @@ function updateNotes(Lc) {
     const f = focusables[cam.focusId]; const sys = f?.sys || solar; const k = sys.visFactor ?? 1;
     notes.push(k < 0.99 ? `Motion through the galaxy slowed ${Math.round(1 / k)}× so the spirals show` : 'Real speed through the galaxy');
   }
-  if (Lc > 7.6 && Lc < 10.6) notes.push('Milky Way shape is an illustration');
-  else if (Lc >= 10.6 && Lc < 14.6) notes.push('Galaxy shapes & glows are illustrations');
+  if (Lc > 7.6 && Lc < 9.8) notes.push('Milky Way shape is an illustration');
+  else if (Lc >= 9.8 && Lc < 15.0) notes.push('Galaxy shapes & glows are illustrations');
+  if (Lc > 10.3 && Lc < 11.6) notes.push('Background dust is decorative'); // where it is most of what you see
   if (Lc > 10.9) notes.push('Galaxy web is an illustration');
   if (newWorlds.noteOn) notes.push('New-world markers not to scale');
   if (starTrails?.visible && starData?.trailYears) notes.push(`Star trails: last ${fmtYears(starData.trailYears)}`);
@@ -1947,11 +1995,16 @@ function fmtDist(au) {
   if (ly < 1e9) return (ly / 1e6).toFixed(ly < 1e7 ? 2 : 0) + ' million light-years';
   return (ly / 1e9).toFixed(1) + ' billion light-years';
 }
+const tmpAnchor = V();
 function scaleName(Ld, Lc) {
-  const f = focusables[cam.focusId];
-  if (f && !f.free && ((f.sys || f.starIdx !== undefined) ? Ld < 4.6 : Ld < Math.log10((f.radius || 1e-6) * 40)) && (Lc < 8 || f.sys === undefined && Ld < Math.log10((f.radius || 1) * 40))) return f.name;
+  let f = focusables[cam.focusId];
+  if (f?.free) { // after free zoom: name the object you left while still near it (within 3× its usual viewing distance)
+    const a = free.anchor ? focusables[free.anchor] : null; f = null;
+    if (a) { a.getPos(tmpAnchor); const dist = camera.position.distanceTo(tmpAnchor); if (dist < (a.defaultDist || 0) * 3) { f = a; Ld = Math.log10(Math.max(dist, 1e-12)); } }
+  }
+  if (f && ((f.sys || f.starIdx !== undefined) ? Ld < 4.6 : Ld < Math.log10((f.radius || 1e-6) * 40)) && (Lc < 8 || f.sys === undefined && Ld < Math.log10((f.radius || 1) * 40))) return f.name;
   const Lx = Math.max(Ld, Lc > 4 ? Lc - 0.3 : Ld);
-  if (Lx < -1.2) return f?.free ? 'Solar System' : (f?.name || 'Planet') + ' & neighborhood'; if (Lx < 2.6) return 'Solar System'; Lc = Lx;
+  if (Lx < -1.2) return f ? (f.name || 'Planet') + ' & neighborhood' : 'Solar System'; if (Lx < 2.6) return 'Solar System'; Lc = Lx;
   if (Lc < 5.4) return 'Outer Solar System'; if (Lc < 8.3) return 'Nearby stars'; if (Lc < 10.3) return 'Milky Way';
   if (Lc < 12.4) return 'Local Group'; if (Lc < 14.4) return 'Cosmic web'; return 'Observable universe';
 }

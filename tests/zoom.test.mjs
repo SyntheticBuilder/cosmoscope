@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   focusPlaneOffset, zoomTowardOffset, zoomTowardPoint, loadPins, savePins, nextPinLetter, PIN_KEY, MAX_PINS,
+  validPin, pinchEngaged, backOutOfSphere,
 } from '../src/zoom.mjs';
 
 // Camera looking down −z from target + (0, 0, d); returns the spot's screen position (tan-space).
@@ -45,7 +46,7 @@ test('offset path stays precise at universe scale and at km scale', () => {
 });
 
 const mem = (init) => { const m = new Map(init ? [[PIN_KEY, init]] : []); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), m }; };
-const pin = (id, extra = {}) => ({ id, t: [1, 2, 3], q: [0, 0, 0, 1], logD: 4.5, focus: null, ...extra });
+const pin = (id, extra = {}) => ({ id, t: [1, 2, 3], q: [0, 0, 0, 1], logD: 4.5, focus: null, anchor: null, off: null, ...extra });
 
 test('pins round-trip through storage', () => {
   const s = mem(); const pins = [pin('A', { focus: 'earth' }), pin('C')];
@@ -80,4 +81,44 @@ test('nextPinLetter fills gaps and stops at 9', () => {
   assert.equal(nextPinLetter([pin('A'), pin('C')]), 'B');
   assert.equal(nextPinLetter([pin('A'), pin('B')]), 'C');
   assert.equal(nextPinLetter('ABCDEFGHI'.split('').map((c) => pin(c))), null);
+});
+
+test('pins keep an anchor + offset; older pins without them still load', () => {
+  const s = mem(); const pins = [pin('A', { anchor: 'earth', off: [1e-5, 0, -2e-5] })];
+  savePins(s, pins); assert.deepEqual(loadPins(s), pins);
+  const old = [{ id: 'B', t: [1, 2, 3], q: [0, 0, 0, 1], logD: 2, focus: 'sun' }];
+  assert.deepEqual(loadPins(mem(JSON.stringify(old))), [{ ...old[0], anchor: null, off: null }]);
+  // an anchor without an offset is dropped (falls back to the absolute spot)
+  assert.equal(loadPins(mem(JSON.stringify([pin('C', { anchor: 'earth', off: null })])))[0].anchor, null);
+});
+
+test('validPin is strict', () => {
+  assert.equal(validPin(pin('A')), true);
+  assert.equal(validPin(Object.create(pin('A'))), false); // inherited properties do not count
+  assert.equal(validPin(pin('A', { q: [0, 0, 0, 0] })), false);
+  assert.equal(validPin(pin('A', { logD: 1e308 })), false);
+  assert.equal(validPin(pin('A', { focus: '' })), false);
+  assert.equal(validPin(pin('A', { focus: 7 })), false);
+  assert.equal(validPin(pin('A', { anchor: 'earth', off: [1, 2] })), false);
+  assert.equal(validPin([]), false);
+});
+
+test('pinchEngaged ignores jitter and small spreads', () => {
+  assert.equal(pinchEngaged(100, 102), false);   // 2 px jitter
+  assert.equal(pinchEngaged(100, 107), false);   // under 8 px
+  assert.equal(pinchEngaged(1000, 1012), false); // 12 px on wide fingers is under 0.02 in log zoom
+  assert.equal(pinchEngaged(100, 115), true);
+  assert.equal(pinchEngaged(100, 85), true);
+  assert.equal(pinchEngaged(0, 50), false);
+});
+
+test('backOutOfSphere backs the camera out along its view', () => {
+  assert.equal(backOutOfSphere({ x: 3, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, 2), 0); // already outside
+  // camera inside at x = 0.5 looking toward −x (back = +x): must back up to x = 2
+  close(backOutOfSphere({ x: 0.5, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, 2), 1.5);
+  // off-axis: the end point is exactly on the sphere and the move is along `back`
+  const rel = { x: 0.3, y: 0.4, z: 0 }, back = { x: 0, y: 0, z: 1 }, R = 4.26e-5 * 1.15;
+  const r2 = { x: rel.x * 1e-5, y: rel.y * 1e-5, z: 0 }; const s = backOutOfSphere(r2, back, R);
+  close(Math.hypot(r2.x, r2.y, r2.z + s), R, 1e-9);
+  assert.ok(s > 0);
 });
