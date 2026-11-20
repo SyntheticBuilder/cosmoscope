@@ -17,6 +17,8 @@ Start hovering over Earth, then pinch or scroll outward through the Solar System
 - **Galaxy view.** Turns ordinary orbits into the spirals they really trace as the Sun races around the Milky Way.
 - **Story stops and a guided tour.** Each stop has a short card with a source for every fact, plus optional narration.
 - **New worlds.** Planets added to NASA's Exoplanet Archive in the last 90 days, refreshed every 6 hours, with a one-time fly-in to the newest find.
+- **Favorites and collections.** Tap ★ Save to keep a place or your exact view, or the ☆ on any card. Group them into collections, and build a My Top 10. The Saved tab in search lists it all, and a collection can play as its own tour.
+- **Shared links.** Share a collection or your Top 10 as a link. The list travels inside the link, so nothing is sent to a server.
 - **Time controls**, from live up to a million years per second, forwards or backwards.
 
 Anything drawn bigger or brighter than real life is labeled "not to scale" on screen.

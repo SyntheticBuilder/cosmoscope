@@ -5,10 +5,11 @@ import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { STORIES } from './stories.js';
 import { inWindow, newestRelease, shouldFlyIn, planetSubtitle, planetStory, teffToRGB, escapeHTML } from './newworlds.mjs';
-import { starCard, distanceFacts, fmtLy, spectralHook, HYG_SOURCE } from './catalog.mjs';
+import { starCard, starNames, distanceFacts, fmtLy, spectralHook, HYG_SOURCE } from './catalog.mjs';
 import { initSearch } from './search.js';
 import { segmentPairs, lineStars, meanDirection, perpendicular, constellationStats, constellationCard } from './constellations.mjs';
 import { focusPlaneOffset, zoomTowardOffset, pinchEngaged, backOutOfSphere, loadPins, savePins, nextPinLetter, MAX_PINS } from './zoom.mjs';
+import { FAV_KEY, COLL_KEY, TOP10_ID, TOP10_NAME, LIMITS, newId, validFavorite, loadFavs, saveFavs, loadColls, saveColls, autoName, cleanName, uniqueName, addItem, moveItem, removeItem, encodeShare, decodeShare } from './favorites.mjs';
 
 // ───────────────────────── units & helpers ─────────────────────────
 // Scene unit: 1 AU. Frame: J2000 equatorial (x → vernal equinox, z → celestial north).
@@ -1367,6 +1368,11 @@ const cam = {
 };
 const MIN_LOG = Math.log10(1e-6), MAX_LOG = Math.log10(UNIVERSE_R * 3.2);
 function focusPos(id, out) { const f = focusables[id]; return f ? f.getPos(out) : out.set(0, 0, 0); }
+// The camera orientation that looks at the target from direction lookFrom (screen-up: up, default ecliptic north).
+function lookQ(lookFrom, up) {
+  const U = up || ECL_N; const m = new THREE.Matrix4().lookAt(lookFrom.clone().normalize(), V(), U.clone().cross(lookFrom).lengthSq() > 1e-6 ? U : V(0, 1, 0));
+  return new THREE.Quaternion().setFromRotationMatrix(m);
+}
 function flyTo(id, dist, dur, lookFrom, up) { // up: optional screen-up direction for lookFrom (default ecliptic north)
   const f = focusables[id]; if (!f) return;
   const fromPos = cam.target.clone(); const toPos = focusPos(id, V());
@@ -1376,7 +1382,7 @@ function flyTo(id, dist, dur, lookFrom, up) { // up: optional screen-up directio
   const bump = Math.max(0, peak - Math.max(fromLog, toLog));
   const span = Math.abs(toLog - fromLog) + bump * 2;
   let toQ = null;
-  if (lookFrom) { const U = up || ECL_N; const m = new THREE.Matrix4().lookAt(lookFrom.clone().normalize(), V(), U.clone().cross(lookFrom).lengthSq() > 1e-6 ? U : V(0, 1, 0)); toQ = new THREE.Quaternion().setFromRotationMatrix(m); }
+  if (lookFrom) toQ = lookQ(lookFrom, up);
   cam.anim = { id, fromPos, fromLog, toLog, bump, t0: performance.now(), dur: dur ?? clamp(1200 + span * 260, 1400, 5200), fromQ: cam.q.clone(), toQ };
   cam.focusId = id;
   showCard(f.story ? (typeof f.story === 'string' ? STORIES[f.story] : f.story) : null, id);
@@ -1548,10 +1554,18 @@ function zoomAt(dLog, clientX, clientY) {
   focusPos('free:here', cam.target); // fresh anchor position (cam.target can be a frame old)
   cam.logD = toLog;
 }
+// How the focused element got focus: by keyboard (Tab, or code moving focus after a key) or by pointer. Chrome turns
+// :focus-visible on for a clicked button as soon as any key is pressed, so it can't tell these apart at keydown.
+let lastInput = 'pointer', kbFocusEl = null;
+addEventListener('pointerdown', () => { lastInput = 'pointer'; }, true);
+addEventListener('keydown', () => { lastInput = 'key'; }, true);
+addEventListener('focusin', e => { kbFocusEl = lastInput === 'key' ? e.target : null; }, true);
 addEventListener('keydown', e => {
   if (e.target instanceof Element && e.target.closest('input, textarea, select')) return; // typing in the search box
+  // Space presses a button that has keyboard focus; after a mouse click (focus stays on the button) it still pauses
+  const onControl = e.target === kbFocusEl && e.target instanceof Element && !!e.target.closest('button, [role=tab], a');
   if (e.key === '+' || e.key === '=') zoomBy(-0.25); if (e.key === '-') zoomBy(0.25);
-  if (e.key === ' ') { togglePause(); e.preventDefault(); }
+  if (e.key === ' ' && !onControl) { togglePause(); e.preventDefault(); }
 });
 
 // ───────────────────────── labels ─────────────────────────
@@ -1686,9 +1700,12 @@ function updateLabels() {
 // ───────────────────────── UI ─────────────────────────
 const $ = s => document.querySelector(s);
 const card = $('#card');
-let cardStoryKey = null, cardFocusId = null;
-function showCard(story, focusId) {
-  cardFocusId = focusId;
+let cardStoryKey = null, cardFocusId = null, cardObjId = null, cardSaved = false;
+// objId: what ☆ saves: the focusable id the card is about, or a function returning { view, label } (read-only cards
+// whose "Fly there" goes to a computed spot), or null when the card has no place (then ☆ is hidden).
+function showCard(story, focusId, objId = focusId) {
+  cardFocusId = focusId; cardObjId = objId ?? null;
+  setCardSaved(false); $('#cardSave').hidden = !cardObjId; // no place to save: no ☆
   selectConstellation(story?.con || null); // a constellation card draws its lines; any other card clears them
   if (!story) { card.classList.remove('open'); return; }
   cardStoryKey = story;
@@ -1731,7 +1748,38 @@ $('#narrate').onclick = async () => {
 
 // ───────────────────────── search & Atlas ─────────────────────────
 const storyOf = f => f?.story ? (typeof f.story === 'string' ? STORIES[f.story] : f.story) : null;
+// Favorites state (the logic is in the "favorites" section further down). Declared here, before initSearch, so the
+// Saved tab can subscribe while it is being set up. Own lists load once the star data is in (story stops and
+// star:<idx> ids only exist then).
+const saved = { favs: [], colls: [{ id: TOP10_ID, name: TOP10_NAME, items: [] }], shared: null, loaded: false, starsDone: false, warned: false, warnNow: false, listeners: new Set() };
+const savedAPI = {
+  ready: () => saved.loaded,
+  list: () => saved.favs.slice(),
+  colls: () => saved.colls.slice(),
+  pins: () => pins.map(p => ({ id: p.id, label: viewLabel(p) })),
+  describe: fav => describeFav(fav),
+  saveCurrent: fromCardFocusId => saveCurrent(fromCardFocusId),
+  restore: fav => restoreFavorite(fav),
+  rename: (id, name) => renameFav(id, name),
+  remove: id => removeFav(id),
+  addTo: (collId, favId) => addToColl(collId, favId),
+  newColl: name => newColl(name),
+  renameColl: (collId, name) => renameColl(collId, name),
+  removeColl: collId => removeColl(collId),
+  moveInColl: (collId, i, delta) => editColl(collId, c => moveItem(c, i, delta)),
+  removeFromColl: (collId, i) => editColl(collId, c => removeItem(c, i)),
+  share: x => shareSaved(x),
+  startListTour: items => startListTour(items),
+  keepPin: pinId => keepPin(pinId),
+  shared: () => saved.shared,
+  saveShared: () => saveShared(),
+  closeShared: () => { if (saved.shared) { saved.shared = null; savedChanged(); } },
+  onChange: cb => { saved.listeners.add(cb); return () => saved.listeners.delete(cb); },
+};
 const searchUI = initSearch({
+  saved: savedAPI,
+  toast: (m) => toast(m),
+  namesLoaded: () => resolveLookups(),
   // every named place you can fly to (dynamic star: and free-point stops excluded)
   places: () => Object.entries(focusables)
     .filter(([id, f]) => f.name && !id.startsWith('star:') && !id.startsWith('con:') && !f.free)
@@ -1746,8 +1794,8 @@ const searchUI = initSearch({
   flyPlace: id => { stopTour(); flyTo(id, undefined, undefined, id === 'galaxy' ? galaxyLook() : undefined); }, // same as tapping its label
   flyStar: idx => { stopTour(); flyToStar(idx); },
   // Read: card only. The camera and its focus stay where they are.
-  readPlace: id => { const s = storyOf(focusables[id]); if (s) showCard(s, cam.focusId); },
-  readStar: idx => { const owner = starOwner.get(idx); showCard(owner ? storyOf(focusables[owner]) : starStory(idx), cam.focusId); },
+  readPlace: id => { const s = storyOf(focusables[id]); if (s) showCard(s, cam.focusId, id); },
+  readStar: idx => { const owner = starOwner.get(idx); showCard(owner ? storyOf(focusables[owner]) : starStory(idx), cam.focusId, owner || ensureStarFocus(idx)); },
   loadExtras: () => { loadConstellations().catch(() => { }); }, // constellations come with the star names
   closeOthers: () => { stopTour(); for (const sel of ['#sheet', '#about', '#newList']) $(sel).classList.remove('open'); card.classList.remove('open'); stopSpeaking(); },
 });
@@ -1790,7 +1838,7 @@ function loadConstellations() {
         con.list = list; for (const c of list) con.byAbbr.set(c.abbr, c);
         searchUI.addExtras(list.flatMap(c => {
           const e = { key: 'c:' + c.abbr, name: c.name, kind: 'Constellation', sub: c.english && c.english !== c.name ? c.english : '', ly: null, category: 'Constellations',
-            fly: () => { stopTour(); flyToConstellation(c.abbr); }, read: () => showCard(conStory(c), cam.focusId), flyDisabled: () => !starData?.pos };
+            fly: () => { stopTour(); flyToConstellation(c.abbr); }, read: () => showCard(conStory(c), cam.focusId, () => conSaveView(c.abbr)), flyDisabled: () => !starData?.pos };
           return e.sub ? [e, { ...e, name: c.english, alias: true }] : [e]; // "Great Bear" finds Ursa Major
         }));
         return list;
@@ -1809,18 +1857,23 @@ function conStory(c) {
 // From our Solar System, facing the figure with celestial north up. The viewpoint is 300 AU from the Sun, off to
 // the side of the line of sight (toward ecliptic north), so the Sun and planets sit outside the view instead of in
 // the middle of the figure. From the stars' distances (≥ 4 light-years) 300 AU changes nothing you could see.
-function flyToConstellation(abbr) {
-  const c = con.byAbbr.get(abbr); if (!c || !starData?.pos) return;
-  const d = meanDirection(lineStars(c.lines), starData.pos, starData.vel, simYears()); if (!d) return;
+function constellationView(abbr) { // where "Fly there" ends: { c, target, lookFrom, up } or null
+  const c = con.byAbbr.get(abbr); if (!c || !starData?.pos) return null;
+  const d = meanDirection(lineStars(c.lines), starData.pos, starData.vel, simYears()); if (!d) return null;
   const fig = V(d[0], d[1], d[2]);
   const eye = V(...perpendicular(d, [ECL_N.x, ECL_N.y, ECL_N.z])).multiplyScalar(CON_VIEW_AU);
   // aim a little below the figure's center so it sits above the card (bottom sheet on phones)
   const north = V(...perpendicular(d, [0, 0, 1])), a = (innerWidth < 820 ? 9 : 2) * deg;
   const dir = fig.clone().multiplyScalar(Math.cos(a)).addScaledVector(north, -Math.sin(a));
   const target = eye.clone().addScaledVector(dir, CON_VIEW_AU);
+  return { c, target, lookFrom: dir.clone().negate(), up: V(0, 0, 1) };
+}
+function flyToConstellation(abbr) {
+  const cv = constellationView(abbr); if (!cv) return;
+  const { c, target } = cv;
   const id = 'con:' + abbr;
   focusables[id] = { name: c.name, getPos: o => o.copy(target), radius: CON_VIEW_AU / 10, defaultDist: CON_VIEW_AU, story: conStory(c) };
-  flyTo(id, CON_VIEW_AU, undefined, dir.clone().negate(), V(0, 0, 1));
+  flyTo(id, CON_VIEW_AU, undefined, cv.lookFrom, cv.up);
 }
 function selectConstellation(abbr) {
   con.selAbbr = abbr && con.byAbbr.has(abbr) ? abbr : null;
@@ -1883,16 +1936,25 @@ const pinAddBtn = document.createElement('button');
 pinAddBtn.className = 'chip pinAdd'; pinAddBtn.textContent = '📍 Pin'; pinAddBtn.setAttribute('aria-label', 'Pin this view');
 pinAddBtn.title = 'Pin this view to come back later';
 chipsEl.prepend(pinAddBtn);
-pinAddBtn.onclick = () => {
-  const id = nextPinLetter(pins);
-  if (!id) { toast(`Up to ${MAX_PINS} pins: press and hold one to remove it.`); return; }
+const saveFavBtn = document.createElement('button');
+saveFavBtn.className = 'chip saveAdd'; saveFavBtn.textContent = '★ Save'; saveFavBtn.setAttribute('aria-label', 'Save this view to your favorites');
+saveFavBtn.title = 'Save this view (place, time and speed) to your favorites';
+pinAddBtn.after(saveFavBtn);
+saveFavBtn.onclick = () => saveCurrent();
+// The current view as pin fields: target, distance, orientation, and either the followed object or (after free zoom)
+// the object the spot rides along with plus the offset from it. Mid-flight or free with no anchor: the spot itself.
+function captureView() {
   const f = focusables[cam.focusId];
   const focus = !cam.anim && f && !f.free ? cam.focusId : null; // mid-flight or free: pin the spot itself
   const anchor = !cam.anim && f?.free && free.anchor ? free.anchor : null;
-  pins = [...pins, { id, t: cam.target.toArray(), q: [cam.q.x, cam.q.y, cam.q.z, cam.q.w], logD: cam.logD, focus, anchor, off: anchor ? free.off.toArray() : null }]
-    .sort((a, b) => a.id.localeCompare(b.id));
-  const saved = savePins(pinStore, pins); renderPins();
-  toast(saved ? `Pin ${id} saved: tap it to come back here.` : `Pin ${id} added for this visit (this browser can't save it).`);
+  return { t: cam.target.toArray(), q: [cam.q.x, cam.q.y, cam.q.z, cam.q.w], logD: cam.logD, focus, anchor, off: anchor ? free.off.toArray() : null };
+}
+pinAddBtn.onclick = () => {
+  const id = nextPinLetter(pins);
+  if (!id) { toast(`Up to ${MAX_PINS} pins: press and hold one to remove it.`); return; }
+  pins = [...pins, { id, ...captureView() }].sort((a, b) => a.id.localeCompare(b.id));
+  const ok = savePins(pinStore, pins); renderPins(); savedChanged();
+  toast(ok ? `Pin ${id} saved: tap it to come back here.` : `Pin ${id} added for this visit (this browser can't save it).`);
 };
 // A stored id is only used if it is a real, own entry (never an inherited name like "toString").
 function pinFocusId(id) {
@@ -1901,8 +1963,9 @@ function pinFocusId(id) {
   const f = hasOwn(focusables, id) ? focusables[id] : null;
   return f && !f.free && typeof f.getPos === 'function' ? id : null;
 }
-function flyToPin(p) {
-  stopTour();
+function flyToPin(p) { stopTour(); restoreView(p); }
+// Fly to a saved view (pin fields): its object if it still exists, else its anchor + offset, else the absolute spot.
+function restoreView(p) {
   let id = pinFocusId(p.focus);
   if (!id) { // a free spot: relative to its object if that is still around, else the absolute spot
     const anchor = pinFocusId(p.anchor);
@@ -1915,12 +1978,12 @@ function flyToPin(p) {
 }
 function removePin(id) {
   if (!pins.some(p => p.id === id)) return false;
-  pins = pins.filter(p => p.id !== id); savePins(pinStore, pins); renderPins();
+  pins = pins.filter(p => p.id !== id); savePins(pinStore, pins); renderPins(); savedChanged();
   toast(`Pin ${id} removed`); return true;
 }
 function renderPins() {
   chipsEl.querySelectorAll('.pinChip').forEach(el => el.remove());
-  let after = pinAddBtn;
+  let after = saveFavBtn; // 📍 Pin, ★ Save, then the pin letters
   for (const p of pins) {
     const b = document.createElement('button'); b.className = 'chip pinChip'; b.textContent = p.id;
     b.setAttribute('aria-label', `Pin ${p.id} — fly back; hold or press Delete to remove`);
@@ -1964,22 +2027,25 @@ function updateTimeUI() {
 }
 const PLAY_ICON = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
 const PAUSE_ICON = '<svg viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor"/></svg>';
-function fmtDate(ms) {
+function fmtDate(ms, speedIdx = time.speedIdx) { // as the time bar shows it at that speed
   const yrs = ms / (DAY_MS * YEAR_D) + 1970;
   if (Math.abs(yrs - 2000) < 200000) {
     const d = new Date(ms);
-    if (SPEEDS[time.speedIdx][1] < 31557600 * 2) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    if (SPEEDS[speedIdx][1] < 31557600 * 2) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
   const y = Math.round(yrs);
   return y > 0 ? `Year ${y.toLocaleString()}` : `${Math.abs(y).toLocaleString()} BCE`;
 }
 
 // view toggle
-document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => {
-  settings.view = b.dataset.v; document.querySelectorAll('#viewSeg button').forEach(x => x.classList.toggle('sel', x === b));
-  toast(settings.view === 'galaxy' ? 'Galaxy view: watch everything get dragged along with the Sun.' : 'Sun view: orbits as seen riding along with the Sun.');
-  if (settings.view === 'galaxy' && time.speedIdx < 4) setSpeed(5);
-});
+// bump: switching to Galaxy view speeds time up so the spirals show; the Tour and favorites keep their own speed.
+function setView(v, { bump = true, announce = false } = {}) {
+  settings.view = v === 'galaxy' ? 'galaxy' : 'sun';
+  document.querySelectorAll('#viewSeg button').forEach(x => x.classList.toggle('sel', x.dataset.v === settings.view));
+  if (announce) toast(settings.view === 'galaxy' ? 'Galaxy view: watch everything get dragged along with the Sun.' : 'Sun view: orbits as seen riding along with the Sun.');
+  if (bump && settings.view === 'galaxy' && time.speedIdx < 4) setSpeed(5);
+}
+document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => setView(b.dataset.v, { announce: true }));
 // settings sheet
 $('#settingsBtn').onclick = () => { searchUI.close(); $('#newList').classList.remove('open'); $('#sheet').classList.toggle('open'); };
 $('#sheetClose').onclick = () => $('#sheet').classList.remove('open');
@@ -2000,7 +2066,17 @@ $('#aboutClose').onclick = () => $('#about').classList.remove('open');
 
 // toast
 let toastT = 0;
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 3200); }
+function toast(msg, ms = 3200) { const t = $('#toast'); t.classList.remove('link'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
+// A toast holding a link in a read-only field (selectable: the toast takes pointer events only in this case).
+function toastLink(url) {
+  const t = $('#toast'); t.textContent = '';
+  const p = document.createElement('span'); p.textContent = 'Copy this link:';
+  const i = document.createElement('input'); i.type = 'text'; i.readOnly = true; i.value = url; i.setAttribute('aria-label', 'Link to share');
+  i.addEventListener('focus', () => i.select());
+  t.append(p, i); t.classList.add('on', 'link');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on', 'link'), 20000);
+  try { i.focus({ preventScroll: true }); i.select(); } catch { }
+}
 // hint
 let hinted = false;
 function hideHint() { if (!hinted) { hinted = true; $('#hint').classList.add('gone'); } }
@@ -2010,20 +2086,377 @@ const TOUR = [
   ['earth', null, 'sun', 0], ['moon', null, 'sun', 3], ['sun', 9, 'galaxy', 6], ['alphacen', null, 'sun', 7], ['proxima', null, 'sun', 3], ['sirius', null, 'sun', 7],
   ['trappist', null, 'sun', 3], ['kepler16', null, 'sun', 4], ['betelgeuse', null, 'sun', 0], ['orion', null, 'sun', 0], ['galaxy', null, 'sun', 0], ['sgra', null, 'sun', 6], ['andromeda', null, 'sun', 0], ['universe', null, 'sun', 0],
 ];
+// A tour is a list of stops [{ go(), caption }]: each stop flies somewhere, then the next one follows after the
+// flight plus ~9 s (or "Next stop" on the card). The built-in Tour is one such list; collections make others.
 let tour = null;
-$('#tourBtn').onclick = () => { if (tour) stopTour(); else { searchUI.close(); startTour(); } };
-function startTour() { time.ms = Date.now(); time.dir = 1; tour = { i: -1, next: 0 }; $('#tourBtn').classList.add('on'); $('#tourBtn').textContent = 'Stop tour'; tourStep(); }
+$('#tourBtn').onclick = () => { if (tour) stopTour(); else { searchUI.close(); startBuiltInTour(); } };
+function builtInStops() {
+  return TOUR.map(([id, dist, view, sp]) => ({ caption: null, go: () => {
+    setView(view, { bump: false });
+    setSpeed(sp); time.dir = 1;
+    flyTo(id, dist ?? undefined, undefined, id === 'sun' ? solarLook() : id === 'galaxy' ? galaxyLook() : undefined);
+  } }));
+}
+function startBuiltInTour() { time.ms = Date.now(); time.dir = 1; startTour(builtInStops()); }
+function startTour(stops) {
+  if (!Array.isArray(stops) || !stops.length) return;
+  tour = { stops, i: -1, next: 0 }; $('#tourBtn').classList.add('on'); $('#tourBtn').textContent = 'Stop tour'; tourStep();
+}
 function stopTour() { if (!tour) return; tour = null; $('#tourBtn').classList.remove('on'); $('#tourBtn').textContent = 'Tour'; }
 function tourStep() {
   if (!tour) return; tour.i++;
-  if (tour.i >= TOUR.length) { stopTour(); return; }
-  const [id, dist, view, sp] = TOUR[tour.i];
-  settings.view = view; document.querySelectorAll('#viewSeg button').forEach(x => x.classList.toggle('sel', x.dataset.v === view));
-  setSpeed(sp); time.dir = 1;
-  flyTo(id, dist ?? undefined, undefined, id === 'sun' ? solarLook() : id === 'galaxy' ? galaxyLook() : undefined);
+  if (tour.i >= tour.stops.length) { stopTour(); return; }
+  const stop = tour.stops[tour.i];
+  try { stop.go(); } catch (err) { console.warn('Tour stop failed', err); }
+  if (!tour) return; // a stop may end the tour
+  if (stop.caption) toast(stop.caption);
   tour.next = performance.now() + (cam.anim?.dur || 2000) + 9000;
 }
-$('#cardNext').onclick = () => { if (tour) tourStep(); else startTour(); };
+$('#cardNext').onclick = () => { if (tour) tourStep(); else startBuiltInTour(); };
+
+// ───────────────────────── favorites, collections, shared links ─────────────────────────
+// A favorite is a pin view plus the moment: simulated time, speed, direction and Sun/Galaxy view. Pure rules
+// (validation, storage, names, list edits, link format) live in favorites.mjs; this is the wiring.
+// State is `saved` (declared before initSearch); the Saved tab uses `savedAPI`.
+const DYNAMIC_ID = /^(con|new|free):/; // made on demand this visit only: saved as the spot instead
+const STAR_ID = /^star:(\d{1,9})$/;
+function savedChanged() { for (const cb of [...saved.listeners]) { try { cb(); } catch (err) { console.warn(err); } } }
+function favOpts() { return { speeds: SPEEDS.length, isKnownId: favKnownId, starName: quickStarName }; }
+// true: an own, lasting focusable or a star in range. 'lookup': a star we can't check yet (or out of range: its
+// saved name may still find it), or, before the star data is in, a plain id that may be a story stop made then.
+// false: anything else.
+function favKnownId(id) {
+  if (typeof id !== 'string') return false;
+  const m = STAR_ID.exec(id);
+  if (m) return starData?.pos && +m[1] < starData.N ? true : 'lookup';
+  if (id.startsWith('star:') || DYNAMIC_ID.test(id)) return false;
+  const f = hasOwn(focusables, id) ? focusables[id] : null;
+  if (f && !f.free && typeof f.getPos === 'function') return true;
+  return !saved.starsDone && /^[A-Za-z0-9_-]{1,40}$/.test(id) ? 'lookup' : false;
+}
+// The best catalog name for a star: the name index's first name when it is loaded, else the named-star list.
+function quickStarName(idx) {
+  const row = searchUI.row(idx);
+  if (row) return starNames(row)[0] || null;
+  const n = starData?.names.find(x => x[0] === idx);
+  return n ? n[1] : null;
+}
+const starIdxOf = id => { const m = typeof id === 'string' ? STAR_ID.exec(id) : null; return m ? +m[1] : null; };
+function stableView(v) { // dynamic ids (constellation views, live planets, free spots) can't be found next visit
+  let out = { t: v.t.slice(), q: v.q.slice(), logD: v.logD, focus: v.focus ?? null, anchor: v.anchor ?? null, off: v.off ? v.off.slice() : null };
+  if (out.focus && DYNAMIC_ID.test(out.focus)) out.focus = null;
+  if (out.anchor && DYNAMIC_ID.test(out.anchor)) { out.anchor = null; out.off = null; }
+  if (!out.anchor) out.off = null;
+  return out;
+}
+const objName = id => { const f = id && hasOwn(focusables, id) ? focusables[id] : null; return f ? (storyOf(f)?.title || f.name || '') : ''; };
+// What a view is "of": its object, else its anchor, else the scale (from the distances alone).
+function viewLabel(v) {
+  for (const id of [v.focus, v.anchor]) {
+    if (!id) continue;
+    const idx = starIdxOf(id); const sn = idx !== null ? quickStarName(idx) : null;
+    const n = sn || objName(id); if (n) return n;
+  }
+  const len = Math.hypot(...v.t), Ld = clamp(v.logD, MIN_LOG, MAX_LOG);
+  return scaleNameAt(Ld, Math.log10(Math.max(len, Math.pow(10, Ld), 1e-9)));
+}
+const speedLabel = (idx, dir) => (dir < 0 && idx > 0 ? 'Reverse ' : '') + SPEEDS[idx][0];
+function describeFav(f) {
+  if (!f?.view || !f.time) return null;
+  return { place: viewLabel(f.view), date: fmtDate(f.time.ms, f.time.speedIdx), speed: speedLabel(f.time.speedIdx, f.time.dir), frame: f.frame };
+}
+function makeFav(view, label) {
+  const auto = autoName(label, fmtDate(time.ms));
+  const fav = { id: newId(), name: auto, autoName: auto, created: Date.now(), view, time: { ms: time.ms, speedIdx: time.speedIdx, dir: time.dir }, frame: settings.view === 'galaxy' ? 'galaxy' : 'sun' };
+  const idx = starIdxOf(view.focus) ?? starIdxOf(view.anchor);
+  const sn = idx !== null ? quickStarName(idx) : null;
+  if (sn) fav.starName = sn;
+  return validFavorite(fav, favOpts()) ? fav : null;
+}
+const store = pinStore;
+// Write the lists. A failed write keeps everything in memory for this visit; the first failure is announced once by
+// the next done() (so it can join that action's own toast instead of being overwritten by it).
+function persist(which) {
+  const ok = (which !== 'colls' ? saveFavs(store, saved.favs) : true) && (which !== 'favs' ? saveColls(store, saved.colls) : true);
+  if (!ok && !saved.warned) { saved.warned = true; saved.warnNow = true; }
+  return ok;
+}
+const STORE_FAIL = "This browser can't keep saved views.";
+// End of every change: tell the Saved tab, then show the action's toast (if any) with the one-time storage warning.
+function done(msg = '', ms = 3200) {
+  const warn = saved.warnNow; saved.warnNow = false;
+  savedChanged();
+  if (warn) toast(msg ? msg + ' · ' + STORE_FAIL : STORE_FAIL, 5000);
+  else if (msg) toast(msg, ms);
+}
+function addFav(fav) {
+  if (saved.favs.length >= LIMITS.favs) { toast(`You have ${LIMITS.favs} favorites: delete one first.`); return null; }
+  saved.favs = [fav, ...saved.favs];
+  persist('favs'); done(`Saved as ‘${fav.name}’`);
+  return fav;
+}
+const camQ = () => [cam.q.x, cam.q.y, cam.q.z, cam.q.w];
+// An object as the place: where flying to it ends (the running flight's end if it is flying there now).
+function objectView(id, keepFocus) {
+  const f = focusables[id]; const flying = cam.anim?.id === id;
+  return { t: focusPos(id, V()).toArray(), q: flying && cam.anim.toQ ? cam.anim.toQ.toArray() : camQ(),
+    logD: flying ? cam.anim.toLog : Math.log10(f.defaultDist), focus: keepFocus ? id : null, anchor: null, off: null };
+}
+// A constellation card: the spot its "Fly there" ends at (a fixed spot, so saved as one).
+function conSaveView(abbr) {
+  const cv = constellationView(abbr); if (!cv) return null;
+  return { view: { t: cv.target.toArray(), q: lookQ(cv.lookFrom, cv.up).toArray(), logD: Math.log10(CON_VIEW_AU), focus: null, anchor: null, off: null }, label: cv.c.name };
+}
+// ★ Save (chip) or ☆ (card). From a card about an object you aren't following, the place its "Fly there" leads to.
+function saveCurrent(fromCard) {
+  let view, label;
+  const spec = typeof fromCard === 'function' ? fromCard() : null;
+  const id = typeof fromCard === 'string' && hasOwn(focusables, fromCard) && !focusables[fromCard].free ? fromCard : null;
+  const lasting = id && favKnownId(id) === true;
+  const conAbbr = id && id.startsWith('con:') ? id.slice(4) : null;
+  if (typeof fromCard === 'function') {
+    if (!spec) { toast("This place couldn't be saved."); return null; }
+    ({ view, label } = spec);
+  } else if (id && (id !== cam.focusId || cam.anim)) {
+    const cs = conAbbr && !(cam.anim?.id === id && cam.anim.toQ) ? conSaveView(conAbbr) : null;
+    if (cs) ({ view, label } = cs);
+    else if (lasting || DYNAMIC_ID.test(id)) { view = objectView(id, lasting); label = lasting ? viewLabel(view) : objName(id); }
+    else { toast("This place couldn't be saved."); return null; }
+  } else {
+    view = stableView(captureView());
+    const followingDyn = !cam.anim && /^(con|new):/.test(cam.focusId) ? objName(cam.focusId) : '';
+    label = view.focus || view.anchor ? viewLabel(view) : followingDyn || (cam.anim ? scaleNameAt(cam.logD, camLogSun) : scaleName(cam.logD, camLogSun));
+  }
+  const fav = makeFav(view, label);
+  if (!fav) { toast("This view couldn't be saved."); return null; }
+  return addFav(fav);
+}
+function keepPin(pinId) {
+  const p = pins.find(x => x.id === pinId); if (!p) return null;
+  const view = stableView(p);
+  const fav = makeFav(view, viewLabel(view));
+  if (!fav) { toast("This pin couldn't be saved."); return null; }
+  return addFav(fav);
+}
+// Fly to a favorite: stop any tour, the place (pin rules), its moment and speed (running), its view without the
+// Galaxy speed bump; flyTo opens the object's card the same way tapping its label does.
+function restoreFavorite(fav, { fromTour = false } = {}) {
+  if (!fav?.view || !fav.time) return;
+  if (!fromTour) stopTour();
+  // a star still waiting for its name check: go to the saved spot rather than a star that may be the wrong one
+  const v = fav.needsLookup ? { ...fav.view, focus: null, anchor: null, off: null } : fav.view;
+  time.ms = fav.time.ms; time.dir = fav.time.dir === -1 ? -1 : 1;
+  setSpeed(fav.time.speedIdx); // also unpauses
+  setView(fav.frame, { bump: false });
+  restoreView(v);
+}
+const findFav = id => saved.favs.find(f => f.id === id) || saved.shared?.items.find(f => f.id === id) || null;
+function renameFav(id, name) {
+  const f = saved.favs.find(x => x.id === id); if (!f) return null;
+  f.name = cleanName(name, f.autoName);
+  persist('favs'); done(); return f.name;
+}
+function removeFav(id) {
+  const f = saved.favs.find(x => x.id === id); if (!f) return false;
+  saved.favs = saved.favs.filter(x => x !== f);
+  persist('favs'); done(`Removed ‘${f.name}’`); return true;
+}
+function addToColl(collId, favId) {
+  const c = saved.colls.find(x => x.id === collId), f = findFav(favId); if (!c || !f) return false;
+  const top = c.id === TOP10_ID;
+  const r = addItem(c, f, top ? LIMITS.top10 : LIMITS.items);
+  if (!r.ok) { toast(r.reason === 'dup' ? `Already in ${c.name}` : top ? 'Top 10 is full: remove one first.' : `${c.name} is full (${LIMITS.items} places): remove one first.`); return false; }
+  saved.colls = saved.colls.map(x => x === c ? r.coll : x);
+  persist('colls'); done(`Added to ${c.name}`); return true;
+}
+function newColl(name, items = [], okMsg = null) { // → the new collection, or null at the limit
+  if (saved.colls.length >= LIMITS.colls) { toast(`Up to ${LIMITS.colls} collections: delete one first.`); return null; }
+  const c = { id: newId(), name: uniqueName(cleanName(name, 'New collection'), saved.colls.map(x => x.name)), items };
+  saved.colls = [...saved.colls, c];
+  persist('colls'); done(okMsg ? okMsg(c) : ''); return c;
+}
+function renameColl(collId, name) {
+  const c = saved.colls.find(x => x.id === collId); if (!c || c.id === TOP10_ID) return null;
+  const n = uniqueName(cleanName(name, c.name), saved.colls.filter(x => x !== c).map(x => x.name));
+  saved.colls = saved.colls.map(x => x === c ? { ...c, name: n } : x);
+  persist('colls'); done(); return n;
+}
+function removeColl(collId) {
+  const c = saved.colls.find(x => x.id === collId); if (!c || c.id === TOP10_ID) return false;
+  saved.colls = saved.colls.filter(x => x !== c);
+  persist('colls'); done(`Removed ‘${c.name}’`); return true;
+}
+function editColl(collId, fn) {
+  const c = saved.colls.find(x => x.id === collId); if (!c) return false;
+  const n = fn(c); if (n === c) return false;
+  saved.colls = saved.colls.map(x => x === c ? n : x);
+  persist('colls'); done(); return true;
+}
+function saveShared() {
+  const s = saved.shared; if (!s) return null;
+  // a link holds at most 50 items (LIMITS.linkItems), the same as a collection, so nothing is cut here
+  const items = s.items.map(f => ({ ...JSON.parse(JSON.stringify(f)), id: newId() })); // a star still being checked keeps its flag
+  return newColl(s.name, items, c => `Saved as ‘${c.name}’`);
+}
+function startListTour(items) {
+  const list = (items || []).filter(f => f?.view && f.time);
+  if (!list.length) { toast('Nothing to tour yet.'); return; }
+  stopTour(); searchUI.close(); setClean(false);
+  startTour(list.map(f => ({ caption: f.name, go: () => restoreFavorite(f, { fromTour: true }) })));
+}
+// Share a collection ({ name, items }) or one favorite as a link that carries the list itself.
+async function shareSaved(x) {
+  const items = Array.isArray(x?.items) ? x.items : x?.view ? [x] : [];
+  if (!items.length) { toast('Nothing to share yet.'); return; }
+  const title = typeof x.name === 'string' ? x.name : 'Cosmoscope';
+  let url;
+  try { url = location.origin + location.pathname + '#s=' + encodeShare({ name: title, items }); } catch { toast("This link couldn't be made."); return; }
+  // the share sheet on phones and tablets only; elsewhere copy the link
+  let touch = false; try { touch = matchMedia('(pointer: coarse)').matches; } catch { }
+  if (touch && navigator.share) {
+    try { await navigator.share({ title, url }); return; } catch (err) { if (err?.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(url); toast('Link copied'); return; } catch { }
+  toastLink(url); // no share sheet, no clipboard: show the link in a field it can be copied from
+}
+
+// ── star lookups: shared (or old) star items carry the star's catalog name; check it against the catalog ──
+// → the star's index, null (not in the catalog), or undefined (needs the name index, not loaded yet).
+// own: an item from this browser's own storage. Our own catalog build made its index, so it is trusted while
+// idx < star count; the name index is never loaded for it (only shared items pay for that check).
+function resolveStarRef(idx, name, own = false) {
+  const N = starData?.N ?? 0;
+  if (typeof name !== 'string') return idx < N ? idx : null;
+  const rows = searchUI.rows();
+  if (own && !rows) return idx < N ? idx : undefined;
+  const namesAt = i => { const out = []; const q = starData.names.find(n => n[0] === i); if (q) out.push(q[1]); const r = rows?.[i]; if (r) out.push(...starNames(r)); return out; };
+  if (idx < N && namesAt(idx).includes(name)) return idx;
+  const q = starData.names.find(n => n[1] === name); if (q && q[0] < N) return q[0];
+  if (!rows) return undefined;
+  const m = starNameMap(rows, N);
+  return m.best.get(name) ?? m.any.get(name) ?? null; // a star's first (best) name wins over its other names
+}
+// name → star index, built once per loaded name index (one pass), so a 50-item link costs 50 map lookups.
+let nameMapFor = null, nameMap = null;
+function starNameMap(rows, N) {
+  if (nameMapFor !== rows) {
+    const best = new Map(), any = new Map();
+    for (let i = 0; i < rows.length && i < N; i++) {
+      const ns = starNames(rows[i]);
+      if (ns[0] && !best.has(ns[0])) best.set(ns[0], i);
+      for (const n of ns) if (!any.has(n)) any.set(n, i);
+    }
+    nameMap = { best, any }; nameMapFor = rows;
+  }
+  return nameMap;
+}
+// → 'ok' | 'drop' | 'wait'; rewrites the star ids in place when the star moved to another index.
+function resolveItem(f, own = false) {
+  if (!f.needsLookup) return 'ok';
+  const map = new Map();
+  for (const id of [f.view.focus, f.view.anchor]) {
+    if (!id || map.has(id)) continue;
+    const idx = starIdxOf(id);
+    if (idx === null) { // a story stop that didn't exist yet when the list loaded
+      if (favKnownId(id) === true) continue;
+      return saved.starsDone ? 'drop' : 'wait';
+    }
+    if (!starData?.pos) return saved.starsDone ? 'drop' : 'wait';
+    const r = resolveStarRef(idx, f.starName, own);
+    if (r === undefined) return 'wait';
+    if (r === null) return 'drop';
+    map.set(id, 'star:' + r);
+  }
+  if (map.has(f.view.focus)) f.view.focus = map.get(f.view.focus);
+  if (map.has(f.view.anchor)) f.view.anchor = map.get(f.view.anchor);
+  delete f.needsLookup; return 'ok';
+}
+// Resolve every waiting item. final: the name index failed, so waiting ones can't be checked (own ones are kept
+// and go to their saved spot; shared ones are left out, with a toast).
+let lookupLoading = false;
+function resolveLookups(final = false) {
+  try {
+    let wait = false, dropShared = 0, dropOwn = 0; // wait: a SHARED item needs the name index
+    const msgs = [];
+    const sweep = (items, own) => items.filter(f => {
+      const r = resolveItem(f, own);
+      if (r === 'wait') { if (own) return true; if (final) { dropShared++; return false; } wait = true; return true; }
+      // own items are only removed when the catalog really lacks them; if the star data failed this visit, keep them
+      if (r === 'drop') { if (own && !starData?.pos) return true; own ? dropOwn++ : dropShared++; return false; }
+      return true;
+    });
+    const anyFlag = list => list.some(f => f.needsLookup);
+    let changed = false;
+    if (saved.shared && anyFlag(saved.shared.items)) {
+      saved.shared = { ...saved.shared, items: sweep(saved.shared.items, false) }; changed = true;
+      if (!saved.shared.items.length) { saved.shared = null; msgs.push("This link couldn't be opened"); }
+      else if (dropShared) msgs.push(`${dropShared === 1 ? 'A place' : dropShared + ' places'} in this link couldn't be found, so ${dropShared === 1 ? 'it was' : 'they were'} left out.`);
+    }
+    if (anyFlag(saved.favs)) { const n = saved.favs.length; saved.favs = sweep(saved.favs, true); changed = true; if (saved.favs.length !== n) persist('favs'); }
+    if (saved.colls.some(c => anyFlag(c.items))) {
+      const before = saved.colls.reduce((n, c) => n + c.items.length, 0);
+      saved.colls = saved.colls.map(c => anyFlag(c.items) ? { ...c, items: sweep(c.items, true) } : c); changed = true;
+      if (saved.colls.reduce((n, c) => n + c.items.length, 0) !== before) persist('colls');
+    }
+    if (dropOwn) msgs.push(`${dropOwn === 1 ? 'A saved place' : dropOwn + ' saved places'} couldn't be found in the catalog and ${dropOwn === 1 ? 'was' : 'were'} removed.`);
+    if (changed || saved.warnNow) done(msgs.join(' '), 5000);
+    if (wait && !final && !lookupLoading && starData?.pos) { // the checks need the star name index: load it now
+      lookupLoading = true;
+      searchUI.loadNames().then(rows => { lookupLoading = false; if (!rows) resolveLookups(true); }) // success: namesLoaded() runs it
+        .catch(() => { lookupLoading = false; resolveLookups(true); });
+    }
+  } catch (err) { console.warn('Star lookup failed', err); }
+}
+
+// ── shared links: #s=1.<data> ──
+function takeShareHash() { // read once, then clear it so a reload doesn't open it again
+  try {
+    if (!location.hash.startsWith('#s=')) return null;
+    const s = location.hash.slice(3);
+    history.replaceState(null, '', location.pathname + location.search);
+    return s;
+  } catch { return null; }
+}
+let pendingShare = takeShareHash();
+addEventListener('hashchange', () => { const s = takeShareHash(); if (s === null) return; if (saved.starsDone) openShared(s); else pendingShare = s; });
+function openShared(str) {
+  const res = decodeShare(str, favOpts());
+  if (!res) { toast("This link couldn't be opened"); return; }
+  // a star whose saved name we couldn't confirm yet gets checked against the catalog before it is trusted
+  for (const f of res.items) if (typeof f.starName === 'string' && (starIdxOf(f.view.focus) !== null || starIdxOf(f.view.anchor) !== null)) f.needsLookup = true;
+  saved.shared = res;
+  setClean(false); stopTour();
+  searchUI.open('saved');
+  toast(`Shared with you: ‘${res.name}’`);
+  savedChanged(); resolveLookups();
+}
+// Own lists load right away (localStorage is synchronous), so limits always see the real lists and every save is
+// written at once. Story stops and stars only exist once the star data is in: until then their items carry
+// needsLookup and are confirmed by resolveLookups() afterwards. Shared links are opened then too.
+saved.favs = loadFavs(store, favOpts());
+saved.colls = loadColls(store, favOpts());
+saved.loaded = true;
+function afterStars() {
+  saved.starsDone = true;
+  resolveLookups();
+  if (pendingShare !== null) { const s = pendingShare; pendingShare = null; openShared(s); }
+}
+// Once this card's place is saved, ☆ becomes ★ and another tap only says so (until another card opens).
+function setCardSaved(on) {
+  cardSaved = on; const b = $('#cardSave');
+  b.textContent = on ? '★' : '☆'; b.setAttribute('aria-pressed', String(on));
+  b.setAttribute('aria-label', on ? 'Saved' : 'Save this place'); b.title = on ? 'Saved' : 'Save this place';
+}
+$('#cardSave').onclick = () => { if (cardSaved) { toast('Already saved'); return; } if (saveCurrent(cardObjId)) setCardSaved(true); };
+// Another tab changed the saved lists: take its version (it wrote last) and redraw.
+addEventListener('storage', e => {
+  if (e.key !== null && e.key !== FAV_KEY && e.key !== COLL_KEY) return;
+  try {
+    saved.favs = loadFavs(store, favOpts());
+    saved.colls = loadColls(store, favOpts());
+    resolveLookups(); savedChanged();
+  } catch (err) { console.warn(err); }
+});
 
 // ───────────────────────── new worlds (live NASA feed) ─────────────────────────
 // Planets NASA added in the last 90 days. Each placed host is a glowing dot at NASA's
@@ -2125,7 +2558,7 @@ function buildNewList() {
     b.onclick = () => {
       $('#newList').classList.remove('open');
       if (focusables['new:' + p.pl_name]) flyTo('new:' + p.pl_name);
-      else showCard(planetStory(p), cam.focusId); // no distance: card only, no flight
+      else showCard(planetStory(p), cam.focusId, null); // no distance: card only, no flight
     };
     li.append(b); list.append(li);
   }
@@ -2235,6 +2668,10 @@ function scaleName(Ld, Lc) {
     if (a) { a.getPos(tmpAnchor); const dist = camera.position.distanceTo(tmpAnchor); if (dist < (a.defaultDist || 0) * 3) { f = a; Ld = Math.log10(Math.max(dist, 1e-12)); } }
   }
   if (f && ((f.sys || f.starIdx !== undefined) ? Ld < 4.6 : Ld < Math.log10((f.radius || 1e-6) * 40)) && (Lc < 8 || f.sys === undefined && Ld < Math.log10((f.radius || 1) * 40))) return f.name;
+  return scaleNameAt(Ld, Lc, f);
+}
+// The scale part of scaleName (no object name): Ld = log10 view distance, Lc = log10 camera distance from the Sun.
+function scaleNameAt(Ld, Lc, f = null) {
   const Lx = Math.max(Ld, Lc > 4 ? Lc - 0.3 : Ld);
   if (Lx < -1.2) return f ? (f.name || 'Planet') + ' & neighborhood' : 'Solar System'; if (Lx < 2.6) return 'Solar System'; Lc = Lx;
   if (Lc < 5.4) return 'Outer Solar System'; if (Lc < 8.3) return 'Nearby stars'; if (Lc < 10.3) return 'Milky Way';
@@ -2366,4 +2803,5 @@ const starsReady = loadStars().then(() => { document.body.classList.add('ready')
 setTimeout(() => { $('#intro').classList.add('gone'); }, 2600);
 setTimeout(hideHint, 11000);
 initNewWorlds(starsReady);
-window.__cosmo = { cam, flyTo, settings, time, setSpeed, focusables };
+starsReady.then(afterStars);
+window.__cosmo = { cam, flyTo, settings, time, setSpeed, focusables, saved: savedAPI };

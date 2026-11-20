@@ -27,6 +27,7 @@ Done:
 - Free zoom: scroll zooms toward the cursor, pinch toward where the fingers started (only once the fingers really spread or close, so two-finger pans don't zoom). The spot you zoom to rides along with the object you were looking at, so it stays in view while time runs. The camera never goes inside a planet, moon, the Sun or a story star. Zooming out, +/− keys and double-tap stay centred. Pinch release no longer triggers the double-tap zoom
 - Pins: "📍 Pin" chip saves the current view as A to I (up to 9, gaps refilled); tap to fly back (to the object, or to the same spot next to it, wherever it has moved); press and hold (touch), right-click or Delete to remove; kept on this device (localStorage)
 - Betelgeuse no longer dims between about 100 and 250 ly when zooming out
+- Favorites: ★ Save chip and a ☆ on fact cards (keeps a place or your exact view); collections; My Top 10; a Saved tab in search; collection tours; shared links (`#s=1.…`: the list is inside the link, nothing goes to a server). Kept on this device
 - Live new-planets feed: planets NASA confirmed in the last 90 days ("✦ N NEW" pill, list, pulsing markers at NASA's positions, cards with sources, one fly-in per new batch; cached for offline, silent if unavailable)
 
 Known limits:
@@ -39,10 +40,13 @@ Known limits:
 - Wide constellations don't fit the width of a phone screen
 - Pins are saved per browser/device only (no sharing yet); they save the place, not the time. Pins on a catalog star depend on the star list's order, and pins on a constellation or a new-world planet fall back to the saved spot if that data hasn't loaded
 - With 9 pins, the scale chips (Earth, Solar System...) start off-screen on phones; scroll the chip row
+- Shared links are frozen copies: editing a list later doesn't change links already sent
+- Deleting a favorite is one tap with no undo
+- Long Saved lists get tall (two lines per row)
 - GitHub pauses the daily feed job after 60 days without repo activity — if the feed stops updating, re-enable the workflow in the repo's Actions tab
 
 Next ideas (in order):
-1. Favorites, shareable collections, Top 10 (can import pins)
+1. Trending (part 2): most visited today / this week / this month, via a small free Cloudflare counter the owner sets up; a visit = flying to a named place and staying 5 s or more, counted once per person per place per day; anonymous
 2. More data: asteroids & comets (JPL), all ~6,500 exoplanets, pulsars (ATNF), quasars (SDSS)
 3. Filters: planet type (estimated), temperature, number of suns, habitable zone, water detected (debated cases marked), moons (Solar System only)
 4. Sky-events timeline (owner, Nov 20: tonight's sky from the visitor's own location): eclipses, moon phases, conjunctions, oppositions, equinoxes/solstices (Astronomy Engine), meteor shower peaks; tap to jump time and camera
