@@ -1577,16 +1577,20 @@ for (const b of solar.bodies) {
 function addStoryLabels() {
   for (const id of ['alphacen', 'sirius', 'trappist', 'betelgeuse', 'proxima', 'barnard', 'gliese710', 'peg51', 'kepler16', 'algol', 'polaris', 'mira', 'orion', 'vega', 'cyg61', 'luhman16', 'capella', 'pleiades', 'hr8799', 'betapic', 'fomalhaut', 'epseri', 'taucet', 'spica', 'arcturus', 'hyades', 'cnc55', 'kapteyn', 'antares', 'zetaoph', 'epsind']) {
     const f = focusables[id]; if (!f) continue; const s = STORIES[f.story];
-    addLabel({ text: s.title.toUpperCase(), sub: s.sub, cls: 'story', prio: 4,
+    const Lb = addLabel({ text: s.title.toUpperCase(), sub: s.sub, cls: 'story', prio: 4,
       getPos: o => f.getPos(o),
-      visible: () => { const d = camDistTo(f.getPos(tmpL)); const L = Math.log10(d); return L > 2.2 && L < 8.6 && camLogSun > 4.2; },
+      visible: () => Lb.near && Lb.inRange(),
       onTap: () => flyTo(id) });
+    Lb.inRange = () => { const L = Math.log10(camDistTo(f.getPos(tmpL))); return L > 2.2 && L < 8.6 && camLogSun > 4.2; };
+    Lb.storyId = id; Lb.near = false; storyStopLabels.push(Lb);
   }
   for (const id of ['crab', 'etacar', 'cygx1', 'pillars', 'omegacen', 'ringneb', 'hulse', 'casa', 'sn1987a', 'wr104', 'kepler90', 'gaiabh1']) {
     const f = focusables[id]; if (!f) continue; const s = STORIES[f.story];
-    addLabel({ text: s.title.toUpperCase(), sub: s.sub.split('·').pop().trim(), cls: 'story', prio: 4, getPos: o => f.getPos(o),
-      visible: () => { const L = Math.log10(camDistTo(f.getPos(tmpL))); return L > 2.2 && L < 9.7 && camLogSun > 6.5; },
+    const Lb = addLabel({ text: s.title.toUpperCase(), sub: s.sub.split('·').pop().trim(), cls: 'story', prio: 4, getPos: o => f.getPos(o),
+      visible: () => Lb.near && Lb.inRange(),
       onTap: () => flyTo(id) });
+    Lb.inRange = () => { const L = Math.log10(camDistTo(f.getPos(tmpL))); return L > 2.2 && L < 9.7 && camLogSun > 6.5; };
+    Lb.storyId = id; Lb.near = false; storyStopLabels.push(Lb);
   }
   const sg = focusables.sgra;
   if (sg) addLabel({ text: STORIES.sgra.title.toUpperCase(), sub: 'black hole at the center', cls: 'story', prio: 5.5, getPos: o => sg.getPos(o),
@@ -1594,6 +1598,19 @@ function addStoryLabels() {
 }
 const tmpL = V();
 let camLogSun = 0;
+// Story-stop labels: only the few stops closest to the camera light up (plus the one being viewed), so labels
+// appear as you travel into each part of the galaxy instead of all at once. Re-ranked every 10 frames;
+// labels already lit get a 20% distance bonus so near-ties don't flicker.
+const storyStopLabels = [];
+let storyLabelFrame = 0;
+function updateStoryLabelSelection() {
+  if (!storyStopLabels.length || storyLabelFrame++ % 10) return;
+  const n = isMobile ? 5 : 8;
+  const onScreen = L => { L.getPos(proj).project(camera); return proj.z < 1 && proj.z > -1 && Math.abs(proj.x) < 1 && Math.abs(proj.y) < 1; };
+  const ranked = storyStopLabels.filter(L => L.inRange() && onScreen(L)).map(L => [L, camDistTo(L.getPos(tmpL)) * (L.near ? 0.8 : 1)]).sort((a, b) => a[1] - b[1]);
+  for (const L of storyStopLabels) L.near = L.storyId === cam.focusId;
+  ranked.slice(0, n).forEach(([L]) => { L.near = true; });
+}
 for (const g of ['andromeda', 'triangulum', 'lmc', 'smc']) {
   const f = focusables[g]; const s = STORIES[g];
   addLabel({ text: s.title.toUpperCase(), sub: s.sub.split('·').pop().trim(), cls: 'story', prio: 4, getPos: o => f.getPos(o),
@@ -2311,7 +2328,7 @@ function frame(now) {
   galaxyGlow.material.uniforms.uScale.value = pS; galaxyGlow.material.uniforms.uPx.value = renderer.getPixelRatio();
   starDust.material.uniforms.uPx.value = renderer.getPixelRatio();
 
-  updateStarLabelSelection();
+  updateStarLabelSelection(); updateStoryLabelSelection();
   updateLabels();
   // HUD
   const viewW = 2 * camDistTarget * Math.tan(camera.fov * deg / 2) * camera.aspect;
