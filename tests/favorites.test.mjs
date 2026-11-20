@@ -259,3 +259,13 @@ test('autoName and uniqueName never leave lone surrogates', () => {
     assert.ok(Array.from(u).length <= 60);
   }
 });
+
+test('positions beyond 10x the universe radius are dropped (t and off)', async () => {
+  const { MAX_COORD_AU } = await import('../src/favorites.mjs');
+  assert.equal(validFavorite(mk({ view: { ...mk().view, t: [1e300, 0, 0] } }), opts), false);
+  assert.equal(validFavorite(mk({ view: { ...mk().view, t: [0, -MAX_COORD_AU * 1.01, 0] } }), opts), false);
+  assert.equal(validFavorite(mk({ view: { ...mk().view, t: [MAX_COORD_AU, 0, 0] } }), opts), true);
+  assert.equal(validFavorite(mk({ view: { ...mk().view, focus: null, anchor: 'earth', off: [0, 0, 1e300] } }), opts), false);
+  const link = encodeShare({ name: 'far', items: [mk(), mk({ name: 'far', view: { ...mk().view, t: [1e300, 0, 0] } })] });
+  assert.equal(decodeShare(link, opts).items.length, 1);
+});

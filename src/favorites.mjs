@@ -10,11 +10,15 @@ export const TOP10_ID = 'top10';
 export const TOP10_NAME = 'My Top 10';
 export const LIMITS = { favs: 200, colls: 30, items: 50, top10: 10, name: 60, linkItems: 50 };
 export const SHARE_VERSION = '1.';
+// Positions (AU) are bounded at 10x the observable-universe radius main.js draws: UNIVERSE_R = 46.5e9 light-years
+// x LY_AU (63241.077 AU per light-year). Anything farther is not a place in the map.
+export const MAX_COORD_AU = 10 * 46.5e9 * 63241.077;
 const MAX_LINK_CHARS = 200000; // a 50-item link is a few thousand; anything near this is hostile
 
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const vecOk = (a, n) => Array.isArray(a) && a.length === n && a.every(finite);
+const posOk = (a) => vecOk(a, 3) && a.every((x) => Math.abs(x) <= MAX_COORD_AU);
 const isObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
 const cpLen = (s) => Array.from(s).length;
 const cpSlice = (s, n) => Array.from(s).slice(0, n).join('');
@@ -49,11 +53,11 @@ function check(f, opts) {
 
   const v = own(f, 'view') ? f.view : null;
   if (!isObj(v)) return null;
-  if (!own(v, 't') || !vecOk(v.t, 3) || !own(v, 'q') || !vecOk(v.q, 4) || Math.hypot(...v.q) < 1e-6) return null;
+  if (!own(v, 't') || !posOk(v.t) || !own(v, 'q') || !vecOk(v.q, 4) || Math.hypot(...v.q) < 1e-6) return null;
   if (!own(v, 'logD') || !finite(v.logD) || Math.abs(v.logD) > 30) return null;
   if (own(v, 'focus') && !optId(v.focus)) return null;
   if (own(v, 'anchor') && !optId(v.anchor)) return null;
-  if (own(v, 'off') && v.off !== null && !vecOk(v.off, 3)) return null;
+  if (own(v, 'off') && v.off !== null && !posOk(v.off)) return null;
 
   const tm = own(f, 'time') ? f.time : null;
   if (!isObj(tm)) return null;

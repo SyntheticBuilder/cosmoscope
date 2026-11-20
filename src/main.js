@@ -9,7 +9,7 @@ import { starCard, starNames, distanceFacts, fmtLy, spectralHook, HYG_SOURCE } f
 import { initSearch } from './search.js';
 import { segmentPairs, lineStars, meanDirection, perpendicular, constellationStats, constellationCard } from './constellations.mjs';
 import { focusPlaneOffset, zoomTowardOffset, pinchEngaged, backOutOfSphere, loadPins, savePins, nextPinLetter, MAX_PINS } from './zoom.mjs';
-import { TOP10_ID, TOP10_NAME, LIMITS, newId, validFavorite, loadFavs, saveFavs, loadColls, saveColls, autoName, cleanName, uniqueName, addItem, moveItem, removeItem, encodeShare, decodeShare } from './favorites.mjs';
+import { FAV_KEY, COLL_KEY, TOP10_ID, TOP10_NAME, LIMITS, newId, validFavorite, loadFavs, saveFavs, loadColls, saveColls, autoName, cleanName, uniqueName, addItem, moveItem, removeItem, encodeShare, decodeShare } from './favorites.mjs';
 
 // ───────────────────────── units & helpers ─────────────────────────
 // Scene unit: 1 AU. Frame: J2000 equatorial (x → vernal equinox, z → celestial north).
@@ -1554,9 +1554,16 @@ function zoomAt(dLog, clientX, clientY) {
   focusPos('free:here', cam.target); // fresh anchor position (cam.target can be a frame old)
   cam.logD = toLog;
 }
+// How the focused element got focus: by keyboard (Tab, or code moving focus after a key) or by pointer. Chrome turns
+// :focus-visible on for a clicked button as soon as any key is pressed, so it can't tell these apart at keydown.
+let lastInput = 'pointer', kbFocusEl = null;
+addEventListener('pointerdown', () => { lastInput = 'pointer'; }, true);
+addEventListener('keydown', () => { lastInput = 'key'; }, true);
+addEventListener('focusin', e => { kbFocusEl = lastInput === 'key' ? e.target : null; }, true);
 addEventListener('keydown', e => {
   if (e.target instanceof Element && e.target.closest('input, textarea, select')) return; // typing in the search box
-  const onControl = e.target instanceof Element && e.target.closest('button, [role=tab], a'); // Space presses a focused button, it doesn't pause
+  // Space presses a button that has keyboard focus; after a mouse click (focus stays on the button) it still pauses
+  const onControl = e.target === kbFocusEl && e.target instanceof Element && !!e.target.closest('button, [role=tab], a');
   if (e.key === '+' || e.key === '=') zoomBy(-0.25); if (e.key === '-') zoomBy(0.25);
   if (e.key === ' ' && !onControl) { togglePause(); e.preventDefault(); }
 });
@@ -1676,12 +1683,12 @@ function updateLabels() {
 // ───────────────────────── UI ─────────────────────────
 const $ = s => document.querySelector(s);
 const card = $('#card');
-let cardStoryKey = null, cardFocusId = null, cardObjId = null;
+let cardStoryKey = null, cardFocusId = null, cardObjId = null, cardSaved = false;
 // objId: what ☆ saves: the focusable id the card is about, or a function returning { view, label } (read-only cards
 // whose "Fly there" goes to a computed spot), or null when the card has no place (then ☆ is hidden).
 function showCard(story, focusId, objId = focusId) {
   cardFocusId = focusId; cardObjId = objId ?? null;
-  $('#cardSave').textContent = '☆'; $('#cardSave').hidden = !cardObjId; // no place to save: no ☆
+  setCardSaved(false); $('#cardSave').hidden = !cardObjId; // no place to save: no ☆
   selectConstellation(story?.con || null); // a constellation card draws its lines; any other card clears them
   if (!story) { card.classList.remove('open'); return; }
   cardStoryKey = story;
@@ -2042,7 +2049,17 @@ $('#aboutClose').onclick = () => $('#about').classList.remove('open');
 
 // toast
 let toastT = 0;
-function toast(msg, ms = 3200) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
+function toast(msg, ms = 3200) { const t = $('#toast'); t.classList.remove('link'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
+// A toast holding a link in a read-only field (selectable: the toast takes pointer events only in this case).
+function toastLink(url) {
+  const t = $('#toast'); t.textContent = '';
+  const p = document.createElement('span'); p.textContent = 'Copy this link:';
+  const i = document.createElement('input'); i.type = 'text'; i.readOnly = true; i.value = url; i.setAttribute('aria-label', 'Link to share');
+  i.addEventListener('focus', () => i.select());
+  t.append(p, i); t.classList.add('on', 'link');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on', 'link'), 20000);
+  try { i.focus({ preventScroll: true }); i.select(); } catch { }
+}
 // hint
 let hinted = false;
 function hideHint() { if (!hinted) { hinted = true; $('#hint').classList.add('gone'); } }
@@ -2283,25 +2300,41 @@ async function shareSaved(x) {
     try { await navigator.share({ title, url }); return; } catch (err) { if (err?.name === 'AbortError') return; }
   }
   try { await navigator.clipboard.writeText(url); toast('Link copied'); return; } catch { }
-  toast(url, 12000); // no share sheet, no clipboard: show the link so it can be copied by hand
+  toastLink(url); // no share sheet, no clipboard: show the link in a field it can be copied from
 }
 
 // ── star lookups: shared (or old) star items carry the star's catalog name; check it against the catalog ──
 // → the star's index, null (not in the catalog), or undefined (needs the name index, not loaded yet).
-function resolveStarRef(idx, name) {
+// own: an item from this browser's own storage. Our own catalog build made its index, so it is trusted while
+// idx < star count; the name index is never loaded for it (only shared items pay for that check).
+function resolveStarRef(idx, name, own = false) {
   const N = starData?.N ?? 0;
   if (typeof name !== 'string') return idx < N ? idx : null;
   const rows = searchUI.rows();
+  if (own && !rows) return idx < N ? idx : undefined;
   const namesAt = i => { const out = []; const q = starData.names.find(n => n[0] === i); if (q) out.push(q[1]); const r = rows?.[i]; if (r) out.push(...starNames(r)); return out; };
   if (idx < N && namesAt(idx).includes(name)) return idx;
   const q = starData.names.find(n => n[1] === name); if (q && q[0] < N) return q[0];
   if (!rows) return undefined;
-  let any = -1;
-  for (let i = 0; i < rows.length && i < N; i++) { const ns = starNames(rows[i]); if (ns[0] === name) return i; if (any < 0 && ns.includes(name)) any = i; }
-  return any >= 0 ? any : null;
+  const m = starNameMap(rows, N);
+  return m.best.get(name) ?? m.any.get(name) ?? null; // a star's first (best) name wins over its other names
+}
+// name → star index, built once per loaded name index (one pass), so a 50-item link costs 50 map lookups.
+let nameMapFor = null, nameMap = null;
+function starNameMap(rows, N) {
+  if (nameMapFor !== rows) {
+    const best = new Map(), any = new Map();
+    for (let i = 0; i < rows.length && i < N; i++) {
+      const ns = starNames(rows[i]);
+      if (ns[0] && !best.has(ns[0])) best.set(ns[0], i);
+      for (const n of ns) if (!any.has(n)) any.set(n, i);
+    }
+    nameMap = { best, any }; nameMapFor = rows;
+  }
+  return nameMap;
 }
 // → 'ok' | 'drop' | 'wait'; rewrites the star ids in place when the star moved to another index.
-function resolveItem(f) {
+function resolveItem(f, own = false) {
   if (!f.needsLookup) return 'ok';
   const map = new Map();
   for (const id of [f.view.focus, f.view.anchor]) {
@@ -2312,7 +2345,7 @@ function resolveItem(f) {
       return saved.starsDone ? 'drop' : 'wait';
     }
     if (!starData?.pos) return saved.starsDone ? 'drop' : 'wait';
-    const r = resolveStarRef(idx, f.starName);
+    const r = resolveStarRef(idx, f.starName, own);
     if (r === undefined) return 'wait';
     if (r === null) return 'drop';
     map.set(id, 'star:' + r);
@@ -2326,11 +2359,11 @@ function resolveItem(f) {
 let lookupLoading = false;
 function resolveLookups(final = false) {
   try {
-    let wait = false, dropShared = 0, dropOwn = 0;
+    let wait = false, dropShared = 0, dropOwn = 0; // wait: a SHARED item needs the name index
     const msgs = [];
     const sweep = (items, own) => items.filter(f => {
-      const r = resolveItem(f);
-      if (r === 'wait') { if (final && !own) { dropShared++; return false; } wait = true; return true; }
+      const r = resolveItem(f, own);
+      if (r === 'wait') { if (own) return true; if (final) { dropShared++; return false; } wait = true; return true; }
       // own items are only removed when the catalog really lacks them; if the star data failed this visit, keep them
       if (r === 'drop') { if (own && !starData?.pos) return true; own ? dropOwn++ : dropShared++; return false; }
       return true;
@@ -2391,7 +2424,22 @@ function afterStars() {
   resolveLookups();
   if (pendingShare !== null) { const s = pendingShare; pendingShare = null; openShared(s); }
 }
-$('#cardSave').onclick = () => { if (saveCurrent(cardObjId)) $('#cardSave').textContent = '★'; };
+// Once this card's place is saved, ☆ becomes ★ and another tap only says so (until another card opens).
+function setCardSaved(on) {
+  cardSaved = on; const b = $('#cardSave');
+  b.textContent = on ? '★' : '☆'; b.setAttribute('aria-pressed', String(on));
+  b.setAttribute('aria-label', on ? 'Saved' : 'Save this place'); b.title = on ? 'Saved' : 'Save this place';
+}
+$('#cardSave').onclick = () => { if (cardSaved) { toast('Already saved'); return; } if (saveCurrent(cardObjId)) setCardSaved(true); };
+// Another tab changed the saved lists: take its version (it wrote last) and redraw.
+addEventListener('storage', e => {
+  if (e.key !== null && e.key !== FAV_KEY && e.key !== COLL_KEY) return;
+  try {
+    saved.favs = loadFavs(store, favOpts());
+    saved.colls = loadColls(store, favOpts());
+    resolveLookups(); savedChanged();
+  } catch (err) { console.warn(err); }
+});
 
 // ───────────────────────── new worlds (live NASA feed) ─────────────────────────
 // Planets NASA added in the last 90 days. Each placed host is a glowing dot at NASA's

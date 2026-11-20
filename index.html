@@ -110,6 +110,7 @@ body.clean #top,body.clean #bottom,body.clean #card,body.clean #labels,body.clea
 #cardBtns{display:flex;align-items:center;gap:2px;flex:none;margin-right:-6px}
 #cardSave{width:36px;height:36px;border-radius:18px;display:grid;place-items:center;color:var(--gold);font-size:19px;line-height:1;flex:none}
 #cardSave[hidden]{display:none}
+@media (pointer:coarse),(max-width:819px){#cardSave{width:44px;height:44px;border-radius:22px;margin:-4px -2px -4px 0}}
 #cardSave:active{background:rgba(255,210,122,.14)}
 #cardHook{font-size:21px;line-height:1.25;font-weight:300;font-style:italic;margin:12px 0 10px}
 #cardFacts{list-style:none;display:grid;gap:8px}
@@ -228,6 +229,9 @@ input[type=range]{width:100%;accent-color:var(--gold)} input[type=range]:disable
 #toast{position:fixed;left:50%;top:calc(var(--sat) + 104px);transform:translate(-50%,-6px);background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);
   padding:9px 16px;border-radius:18px;font-size:13px;font-weight:300;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;max-width:88vw;text-align:center;overflow-wrap:anywhere}
 #toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.link{pointer-events:auto;display:flex;flex-direction:column;gap:6px;width:min(420px,88vw)}
+#toast.link:not(.on){pointer-events:none}
+#toast.link input{width:100%;height:36px;border-radius:10px;border:1px solid var(--line);background:rgba(237,234,226,.06);color:var(--star);font:inherit;font-size:13px;padding:0 10px}
 
 /* intro */
 #intro{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;transition:opacity 1.4s ease}
