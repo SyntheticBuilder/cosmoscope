@@ -638,7 +638,160 @@ function readOnlyStoryDefs({ findStar, starPos, starVel, hide }) {
       after: sys => sys.group.add(makeHomunculus(pos.clone().normalize())) });
     hideNear(161.2650, -59.6845, 0.05, 'etacar');
   }
+  defs.push(...batch3Defs({ findStar, starPos, starVel, hide }));
   return defs;
+}
+// ── Batch 3 read-only stops (Nov 2026). Planet numbers: NASA Exoplanet Archive (pscomppars) unless noted. ──
+function batch3Defs({ findStar, starPos, starVel, hide }) {
+  const defs = [];
+  const los = p => p.clone().normalize();
+  const edgeOn = pos => new THREE.Vector3().crossVectors(los(pos), V(0, 0, 1)).normalize();
+  const planets = (list, col, rDef = RJ_AU) => list.map(([n, a, P, e, r], i) => ({ name: n, r: r ?? rDef, color: col[i % col.length], marker: 7, orbit: { a, P, e: e || 0, phase: (i * 0.29 + 0.1) % 1 } }));
+  // HR 8799 (41.2441 pc): e 16.4, d 24, c 38, b 68 AU; periods from the archive. Seen close to face-on; drawn circular.
+  {
+    const pos = radec(346.8701, 21.1340, 41.2441 * PC_AU);
+    defs.push({ id: 'hr8799', story: 'hr8799', name: 'HR 8799', pos, normal: los(pos).add(V(0.15, 0.1, 0)).normalize(), defaultDist: 240,
+      bodies: [{ name: 'HR 8799', star: true, r: 1.49 * RSUN_AU, color: '#eef2ff', marker: 18 },
+        ...planets([['HR 8799 e', 16.4, 20815.6], ['HR 8799 d', 24, 37000], ['HR 8799 c', 38, 69000], ['HR 8799 b', 68, 170000]].map(x => [...x, 0, 1.2 * RJ_AU]), ['#ff9f6a', '#ffc37a', '#e8a0ff', '#9fc4ff'])] });
+    hideNear3(346.8701, 21.1340, hide, 'hr8799');
+  }
+  // Beta Pictoris (19.7442 pc): c 2.7 AU / 1202 d / e 0.307; b 10.07 AU / 8682 d / e 0.105; d 26 AU / 33200 d / e 0.44 (2026). Disk seen edge-on.
+  {
+    const pos = radec(86.8212, -51.0661, 19.7442 * PC_AU); const n = edgeOn(pos);
+    defs.push({ id: 'betapic', story: 'betapic', name: 'Beta Pictoris', pos, normal: n, defaultDist: 300,
+      bodies: [{ name: 'Beta Pictoris', star: true, r: 1.54 * RSUN_AU, color: '#f2f5ff', marker: 18 },
+        ...planets([['Beta Pictoris c', 2.7, 1202, 0.307], ['Beta Pictoris b', 10.07, 8682, 0.105], ['Beta Pictoris d', 26, 33200, 0.44]].map(x => [...x, 1.2 * RJ_AU]), ['#ffb37a', '#ffd59a', '#a8c8ff'])],
+      after: sys => sys.group.add(makeDustRing(n, 60, 28, 0.02, [1, 0.85, 0.65], 8000, 0.45, 6, 1.4)) });
+    hideNear3(86.8212, -51.0661, hide, 'betapic');
+  }
+  // Fomalhaut: dust ring ~136 AU across its long axis, e ≈ 0.12 (ALMA, MacGregor et al. 2017)
+  const fo = findStar('Fomalhaut');
+  if (fo) {
+    const n = V(0.35, 0.5, 0.79).normalize();
+    defs.push({ id: 'fomalhaut', story: 'fomalhaut', name: 'Fomalhaut', pos: starPos(fo[0]), vHelio: starVel(fo[0]), normal: n, defaultDist: 520,
+      bodies: [{ name: 'Fomalhaut', star: true, r: 1.84 * RSUN_AU, color: '#eef3ff', marker: 20 }],
+      after: sys => sys.group.add(makeDustRing(n, 136, 8, 0.12, [0.9, 0.78, 0.6], 3200, 0.55, 8)) });
+    hide(fo[0], 'fomalhaut');
+  }
+  // Epsilon Eridani (Ran): planet b a 3.53 AU, P 2680 d, e 0.06; outer dust ring ~70 AU (ALMA, Booth et al. 2017)
+  const ee = findStar('Ran');
+  if (ee) {
+    const n = V(-0.2, 0.45, 0.87).normalize();
+    defs.push({ id: 'epseri', story: 'epseri', name: 'Epsilon Eridani', pos: starPos(ee[0]), vHelio: starVel(ee[0]), normal: n, defaultDist: 190,
+      bodies: [{ name: 'Epsilon Eridani', star: true, r: 0.76 * RSUN_AU, color: '#ffcf8f', marker: 18 },
+        ...planets([['Epsilon Eridani b', 3.53, 2680, 0.06]], ['#d9c3a0'])],
+      after: sys => sys.group.add(makeDustRing(n, 70, 10, 0, [0.8, 0.7, 0.55], 2400, 0.5, 6)) });
+    hide(ee[0], 'epseri');
+  }
+  // Tau Ceti (3.603 pc): candidate planets g 0.133 AU / 20 d, h 0.243 / 49.41 d, f 1.334 / 636.13 d (minimum masses; unconfirmed)
+  {
+    const i = nearestStar(26.0170, -15.9375, 0.1, 3, 4.3);
+    if (i >= 0) {
+      defs.push({ id: 'taucet', story: 'taucet', name: 'Tau Ceti', pos: starPos(i), vHelio: starVel(i), normal: V(0.3, -0.3, 0.9), defaultDist: 4.2,
+        bodies: [{ name: 'Tau Ceti', star: true, r: 0.83 * RSUN_AU, color: '#fff0cf', marker: 18 },
+          ...planets([['Tau Ceti g', 0.133, 20, 0.06], ['Tau Ceti h', 0.243, 49.41, 0.23], ['Tau Ceti f', 1.334, 636.13, 0.16]], ['#f0b48a', '#d8c09a', '#9fc8ff'], RE_AU * 1.5)] });
+      hide(i, 'taucet');
+    }
+  }
+  // Spica (Tkachenko et al. 2016): P 4.0145 d, e 0.133, a 28.20 Rsun, masses 11.43 / 7.21, radii 7.47 / 3.74 Rsun
+  const sp = findStar('Spica');
+  if (sp) {
+    const mA = 11.43, mB = 7.21, M = mA + mB; const bin = { a: 28.20 * RSUN_AU, e: 0.133, P: 4.0145 };
+    defs.push({ id: 'spica', story: 'spica', name: 'Spica', pos: starPos(sp[0]), vHelio: starVel(sp[0]), normal: V(0.4, 0.2, 0.89), defaultDist: 0.75,
+      bodies: [{ name: 'Spica A', star: true, r: 7.47 * RSUN_AU, color: '#b8ccff', marker: 20, binary: { ...bin, k: -mB / M } },
+        { name: 'Spica B', star: true, r: 3.74 * RSUN_AU, color: '#cfdcff', marker: 14, binary: { ...bin, k: mA / M } }] });
+    hide(sp[0], 'spica');
+  }
+  // 55 Cancri (Copernicus): e, b, c, f, d from the archive (e: R 1.875 Earth)
+  const cn = findStar('Copernicus');
+  if (cn) {
+    defs.push({ id: 'cnc55', story: 'cnc55', name: '55 Cancri', pos: starPos(cn[0]), vHelio: starVel(cn[0]), normal: V(-0.25, 0.35, 0.9), defaultDist: 0.075,
+      bodies: [{ name: '55 Cancri A', star: true, r: 0.98 * RSUN_AU, color: '#ffe3b0', marker: 18 },
+        { name: '55 Cancri e', r: 1.875 * RE_AU, color: '#ff7a3a', marker: 8, orbit: { a: 0.01544, P: 0.7365474, e: 0.05, phase: 0.2 } },
+        ...planets([['55 Cancri b', 0.118, 14.651552, 0.0029], ['55 Cancri c', 0.247, 44.3936, 0.088], ['55 Cancri f', 0.802, 260.58, 0.063], ['55 Cancri d', 5.6, 4799, 0.0913]], ['#ffd59a', '#c8b48a', '#9fc8ff', '#e0c8a0'])] });
+    hide(cn[0], 'cnc55');
+  }
+  // Kepler-90 (848.254 pc; not in HYG). Eight transiting planets, so drawn edge-on.
+  {
+    const pos = radec(284.4335, 49.3051, 848.254 * PC_AU);
+    const P8 = [['Kepler-90 b', 0.074, 7.008151, 1.31], ['Kepler-90 c', 0.089, 8.719375, 1.19], ['Kepler-90 i', 0.1201, 14.44912, 1.32], ['Kepler-90 d', 0.32, 59.73667, 2.87],
+      ['Kepler-90 e', 0.42, 91.93913, 2.66], ['Kepler-90 f', 0.48, 124.9144, 2.88], ['Kepler-90 g', 0.71704, 210.73514, 7.718], ['Kepler-90 h', 0.97062, 331.60296, 11.252]];
+    defs.push({ id: 'kepler90', story: 'kepler90', name: 'Kepler-90', pos, normal: edgeOn(pos).add(V(0, 0, 0.25)).normalize(), defaultDist: 2.6,
+      bodies: [{ name: 'Kepler-90', star: true, r: 1.2 * RSUN_AU, color: '#fff2d8', marker: 18 },
+        ...planets(P8.map(([n, a, P, re]) => [n, a, P, 0, re * RE_AU]), ['#f0a080', '#e8b090', '#ffc8a0', '#c8d0a0', '#a0c8c0', '#9fc0ff', '#e0c890', '#d8b88a'])] });
+  }
+  // Gaia BH1 (El-Badry et al. 2023): 480 pc; BH 9.62 Msun, star 0.93 Msun; P 185.6 d, e 0.45 → a ≈ 1.40 AU (Kepler's law)
+  {
+    const pos = radec(262.1711, -0.5809, 480 * PC_AU);
+    const mBH = 9.62, mS = 0.93, M = mBH + mS; const P = 185.6; const a = Math.cbrt(M * (P / YEAR_D) ** 2);
+    const bin = { a, e: 0.45, P }; const rs = 2 * 6.674e-11 * mBH * 1.989e30 / (299792458 ** 2) / 1000 / AU_KM;
+    defs.push({ id: 'gaiabh1', story: 'gaiabh1', name: 'Gaia BH1', pos, normal: V(0.5, 0.3, 0.81), defaultDist: 6,
+      bodies: [{ name: 'Gaia BH1 star', star: true, r: 1.0 * RSUN_AU, color: '#fff0c8', marker: 16, binary: { ...bin, k: mBH / M } },
+        { name: 'Gaia BH1 black hole', r: rs, color: '#000000', markerColor: '#ffae66', marker: 12, binary: { ...bin, k: -mS / M } }] });
+  }
+  // Hulse–Taylor pulsar PSR B1913+16 (Weisberg & Huang 2016): P 0.322997 d, e 0.617134, masses 1.438 / 1.390; VLBI distance 4.1 kpc (Deller et al. 2018, uncertain)
+  {
+    const pos = radec(288.8667, 16.1075, 4100 * PC_AU);
+    const m1 = 1.438, m2 = 1.390, M = m1 + m2, P = 0.322997; const a = Math.cbrt(M * (P / YEAR_D) ** 2); const bin = { a, e: 0.617134, P };
+    const rNS = 12 / AU_KM;
+    defs.push({ id: 'hulse', story: 'hulse', name: 'Hulse–Taylor pulsar', pos, normal: V(-0.3, 0.5, 0.81), defaultDist: 0.075,
+      bodies: [{ name: 'PSR B1913+16', star: true, r: rNS, color: '#bfe0ff', marker: 13, binary: { ...bin, k: -m2 / M } },
+        { name: 'Companion neutron star', star: true, r: rNS, color: '#d8d0ff', marker: 11, binary: { ...bin, k: m1 / M } }] });
+  }
+  // Antares: ~700 times the Sun's diameter, ~12 Msun (ESO / Ohnaka et al. 2017)
+  const an = findStar('Antares');
+  if (an) {
+    defs.push({ id: 'antares', story: 'antares', name: 'Antares', pos: starPos(an[0]), vHelio: starVel(an[0]), normal: V(0, 0, 1), defaultDist: 21,
+      bodies: [{ name: 'Antares', star: true, r: 700 * RSUN_AU, color: '#ff6a3a', marker: 30 }] });
+    hide(an[0], 'antares');
+  }
+  // Epsilon Indi A + Ab (JWST, Matthews et al. 2024; archive: a 15.76 AU, P 25450 d, e 0.25)
+  {
+    const i = nearestStar(330.8714, -56.7969, 0.1, 3, 4.3);
+    if (i >= 0) {
+      defs.push({ id: 'epsind', story: 'epsind', name: 'Epsilon Indi', pos: starPos(i), vHelio: starVel(i), normal: V(0.2, 0.6, 0.77), defaultDist: 55,
+        bodies: [{ name: 'Epsilon Indi A', star: true, r: 0.713 * RSUN_AU, color: '#ffc98a', marker: 18 },
+          ...planets([['Epsilon Indi Ab', 15.76, 25450, 0.25, 1.13 * RJ_AU]], ['#c8b8d8'])] });
+      hide(i, 'epsind');
+    }
+  }
+  // Zeta Ophiuchi: runaway star at ~24 km/s with a bow shock ahead of it (NASA Spitzer). Shock is an illustration.
+  {
+    const i = nearestStar(249.2897, -10.5671, 0.1, 80, 200);
+    if (i >= 0) {
+      const vel = starVel(i);
+      defs.push({ id: 'zetaoph', story: 'zetaoph', name: 'Zeta Ophiuchi', pos: starPos(i), vHelio: vel, normal: V(0, 0, 1), defaultDist: 4.5e5,
+        bodies: [{ name: 'Zeta Ophiuchi', star: true, r: 8 * RSUN_AU, color: '#a8c4ff', marker: 22 }],
+        after: sys => sys.group.add(makeBowShock(vel.lengthSq() ? vel.clone().normalize() : V(1, 0, 0))) });
+      hide(i, 'zetaoph');
+    }
+  }
+  return defs;
+}
+function hideNear3(ra, dec, hide, owner) { const i = nearestStar(ra, dec, 0.05); if (i >= 0) hide(i, owner); }
+// Flat dust ring (illustration): radius R (AU), width W (AU), eccentricity e, around a plane normal
+function makeDustRing(normal, R, W, e, c, n, opacity, max, ps) {
+  const r = rng(Math.round(R * 31)); const N = isMobile ? Math.round(n * 0.6) : n; const [u, w] = planeBasis(normal);
+  const pos = new Float32Array(N * 3), col = new Float32Array(N * 3), sz = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const th = r() * Math.PI * 2; const rad = R * (1 - e * e) / (1 + e * Math.cos(th)) + gauss(r) * W * 0.4; const h = gauss(r) * W * 0.06;
+    const x = rad * Math.cos(th), y = rad * Math.sin(th);
+    pos[i * 3] = u.x * x + w.x * y + normal.x * h; pos[i * 3 + 1] = u.y * x + w.y * y + normal.y * h; pos[i * 3 + 2] = u.z * x + w.z * y + normal.z * h;
+    const f = 0.35 + r() * 0.35; col[i * 3] = c[0] * f; col[i * 3 + 1] = c[1] * f; col[i * 3 + 2] = c[2] * f; sz[i] = (ps ?? Math.max(W, R * 0.04) * 0.25) * (0.5 + r());
+  }
+  return cloudPoints(pos, col, sz, opacity, max);
+}
+// Zeta Ophiuchi's bow shock (illustration): a glowing arc ~1.5 ly ahead of the star, opening backwards
+function makeBowShock(dir) {
+  const r = rng(1913), n = isMobile ? 1500 : 2500, L = 1.5 * LY_AU; const [u, w] = planeBasis(dir);
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), sz = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const th = r() * Math.PI * 2, s = Math.pow(r(), 0.7) * 1.4; const rad = L * s; const along = L * (1 - 0.45 * s * s) + gauss(r) * L * 0.03;
+    const a = rad * Math.cos(th), b = rad * Math.sin(th);
+    pos[i * 3] = dir.x * along + u.x * a + w.x * b; pos[i * 3 + 1] = dir.y * along + u.y * a + w.y * b; pos[i * 3 + 2] = dir.z * along + u.z * a + w.z * b;
+    const f = (1 - s / 1.6) * 0.6 + 0.15; col[i * 3] = 1 * f; col[i * 3 + 1] = 0.45 * f; col[i * 3 + 2] = 0.4 * f; sz[i] = L * 0.05 * (0.5 + r());
+  }
+  return cloudPoints(pos, col, sz, 0.6, 14);
 }
 // Eta Carinae's hourglass cloud (illustration): two lobes along an axis, ~0.3 ly each
 function makeHomunculus(los) {
@@ -705,6 +858,66 @@ function addReadOnlyStops() {
     const i = al[0]; const p = V(starData.buf[i * 8], starData.buf[i * 8 + 1], starData.buf[i * 8 + 2]).multiplyScalar(PC_AU);
     focusables.pleiades = { name: 'Pleiades', getPos: o => o.copy(p), radius: 1e5, story: 'pleiades', defaultDist: 1.6e6 };
   }
+  // ── batch 3 ──
+  // Cassiopeia A: RA 350.85°, Dec 58.815°, ~11,000 ly (Chandra); ~10 ly across. Knotty shell + central neutron star.
+  {
+    const R = 5 * LY_AU; const center = radec(350.85, 58.815, 11000 / 3.2616 * PC_AU);
+    addCloud('casa', 'Cassiopeia A', center, 3200, r => {
+      const core = r() < 0.04; const u = gauss(r), v = gauss(r), w = gauss(r); const d = Math.hypot(u, v, w) || 1;
+      if (core) return [u / d * R * 0.01, v / d * R * 0.01, w / d * R * 0.01, [0.6, 0.75, 1], R * 0.03];
+      const k = (0.8 + 0.2 * r()) / d; const c = [[1, 0.5, 0.3], [0.5, 0.85, 1], [1, 0.85, 0.4], [0.6, 1, 0.55]][(r() * 4) | 0]; const f = 0.35 + r() * 0.3;
+      return [u * k * R, v * k * R, w * k * R, c.map(x => x * f), R * 0.05 * (0.5 + r())];
+    }, 0.5, 16, 1.4e6, R * 0.2);
+  }
+  // SN 1987A: RA 83.8666°, Dec −69.2697°, in the Large Magellanic Cloud ~160,000 ly (NASA). Inner ring + debris (illustration).
+  {
+    const R = 0.65 * LY_AU; const center = radec(83.8666, -69.2697, 160000 / 3.2616 * PC_AU);
+    const nrm = V(0.3, 0.5, 0.81).normalize(); const [u, w] = planeBasis(nrm);
+    addCloud('sn1987a', 'SN 1987A', center, 2400, r => {
+      if (r() < 0.3) { const g = [gauss(r), gauss(r), gauss(r)].map(x => x * R * 0.18); return [...g, [0.9, 0.55, 0.45].map(x => x * 0.4), R * 0.05 * (0.5 + r())]; }
+      const th = r() * Math.PI * 2; const rr = R * (1 + gauss(r) * 0.03); const x = rr * Math.cos(th), y = rr * Math.sin(th);
+      const hot = r() < 0.3; const c = hot ? [1, 0.95, 0.8] : [1, 0.6, 0.45]; const f = hot ? 0.7 : 0.4;
+      return [u.x * x + w.x * y, u.y * x + w.y * y, u.z * x + w.z * y, c.map(v => v * f), R * 0.03 * (0.5 + r())];
+    }, 0.65, 12, 1.6e5, R * 0.3);
+  }
+  // Ring Nebula (M57): RA 283.396°, Dec 33.029°, 790 pc (Gaia parallax); ~1.6 ly across from its 2.1′ size. Seen down the barrel.
+  {
+    // drawn as a thin glowing shell: its bright rim reads as a ring from any viewing angle
+    const center = radec(283.396, 33.029, 790 * PC_AU); const R = 0.6 * LY_AU;
+    addCloud('ringneb', 'Ring Nebula', center, 3600, r => {
+      const inner = r() < 0.18; const u = gauss(r), v = gauss(r), w = gauss(r); const d = Math.hypot(u, v, w) || 1;
+      const rr = inner ? R * 0.5 * Math.cbrt(r()) : R * (1 + gauss(r) * 0.05);
+      const c = inner ? [0.45, 0.8, 1] : (rr > R * 1.03 ? [1, 0.45, 0.35] : [1, 0.78, 0.45]); const f = inner ? 0.18 : 0.3 + r() * 0.2;
+      return [u / d * rr, v / d * rr, w / d * rr, c.map(x => x * f), R * 0.05 * (0.5 + r())];
+    }, 0.5, 12, 3.2e5, R * 0.3);
+  }
+  // WR 104 (Tuthill et al. 2008): 2.58 kpc; dust pinwheel turns once every 241.5 days. Spiral is an illustration, spun at the real period.
+  {
+    const center = radec(270.517, -23.628, 2580 * PC_AU); const axis = center.clone().normalize().negate(); const [u, w] = planeBasis(axis);
+    const step = 170; // AU between spiral turns (illustrative)
+    const grp = addCloud('wr104', 'WR 104', center, 3000, r => {
+      if (r() < 0.03) return [gauss(r) * 2, gauss(r) * 2, gauss(r) * 2, [0.8, 0.85, 1], 6];
+      const turns = Math.pow(r(), 0.8) * 4; const th = turns * Math.PI * 2; const rr = turns * step + gauss(r) * step * 0.07; const fade = 1 - turns / 4.4;
+      const x = rr * Math.cos(th), y = rr * Math.sin(th), z = gauss(r) * step * 0.05;
+      return [u.x * x + w.x * y + axis.x * z, u.y * x + w.y * y + axis.y * z, u.z * x + w.z * y + axis.z * z, [1, 0.62, 0.35].map(v => v * (0.25 + 0.5 * fade)), step * 0.12 * (0.5 + r())];
+    }, 0.6, 12, 2600, 30);
+    const pts = grp.children[0]; const prev = pts.onBeforeRender;
+    // We see the dust spiral face-on from Earth, so keep it facing the camera and spin it at the real period.
+    const qSpin = new THREE.Quaternion(), qFace = new THREE.Quaternion(), toCam = V();
+    pts.onBeforeRender = (...a) => {
+      prev(...a);
+      toCam.copy(a[2].position).sub(center).normalize(); qFace.setFromUnitVectors(axis, toCam);
+      qSpin.setFromAxisAngle(axis, 2 * Math.PI * ((simDays() / 241.5) % 1)); pts.quaternion.copy(qFace).multiply(qSpin); pts.updateMatrixWorld();
+    };
+  }
+  // Hyades: centre on the mean position of its named HYG members (real stars already in the field)
+  {
+    const mem = ['Ain', 'Chamukuy', 'Prima Hyadum', 'Secunda Hyadum'].map(n => starData.names.find(x => x[1] === n)).filter(Boolean);
+    if (mem.length) {
+      const c = V(); for (const [i] of mem) c.add(V(starData.buf[i * 8], starData.buf[i * 8 + 1], starData.buf[i * 8 + 2])); c.multiplyScalar(PC_AU / mem.length);
+      focusables.hyades = { name: 'Hyades', getPos: o => o.copy(c), radius: 1e5, story: 'hyades', defaultDist: 1.8e6 };
+    }
+  }
 }
 function makeMiraTail(dir) {
   // ~13 ly long, widening behind the star; a brighter bow at the front
@@ -728,6 +941,8 @@ function addMovingStarStops() {
   const stops = [
     { id: 'barnard', idx: (starData.names.find(n => n[1] === 'Barnard\'s Star') || [])[0] },
     { id: 'gliese710', idx: nearestStar(274.9624, -1.9386, 0.1, 15, 25) }, // Gaia DR3: 19 pc
+    { id: 'arcturus', idx: (starData.names.find(n => n[1] === 'Arcturus') || [])[0] },
+    { id: 'kapteyn', idx: (starData.names.find(n => n[1] === 'Kapteyn\'s Star') || [])[0] },
   ];
   // Gliese 710's HYG (Hipparcos-era) motion misses the Sun by ~1.3 ly. Replace it with the Gaia DR3 flyby solution
   // (parallax 52.3963 mas → 19.085 pc; closest approach 0.052 pc in ~1.29 Myr, de la Fuente Marcos 2022): a straight path
@@ -1360,14 +1575,14 @@ for (const b of solar.bodies) {
     onTap: () => flyTo(b.id) });
 }
 function addStoryLabels() {
-  for (const id of ['alphacen', 'sirius', 'trappist', 'betelgeuse', 'proxima', 'barnard', 'gliese710', 'peg51', 'kepler16', 'algol', 'polaris', 'mira', 'orion', 'vega', 'cyg61', 'luhman16', 'capella', 'pleiades']) {
+  for (const id of ['alphacen', 'sirius', 'trappist', 'betelgeuse', 'proxima', 'barnard', 'gliese710', 'peg51', 'kepler16', 'algol', 'polaris', 'mira', 'orion', 'vega', 'cyg61', 'luhman16', 'capella', 'pleiades', 'hr8799', 'betapic', 'fomalhaut', 'epseri', 'taucet', 'spica', 'arcturus', 'hyades', 'cnc55', 'kapteyn', 'antares', 'zetaoph', 'epsind']) {
     const f = focusables[id]; if (!f) continue; const s = STORIES[f.story];
     addLabel({ text: s.title.toUpperCase(), sub: s.sub, cls: 'story', prio: 4,
       getPos: o => f.getPos(o),
       visible: () => { const d = camDistTo(f.getPos(tmpL)); const L = Math.log10(d); return L > 2.2 && L < 8.6 && camLogSun > 4.2; },
       onTap: () => flyTo(id) });
   }
-  for (const id of ['crab', 'etacar', 'cygx1', 'pillars', 'omegacen']) {
+  for (const id of ['crab', 'etacar', 'cygx1', 'pillars', 'omegacen', 'ringneb', 'hulse', 'casa', 'sn1987a', 'wr104', 'kepler90', 'gaiabh1']) {
     const f = focusables[id]; if (!f) continue; const s = STORIES[f.story];
     addLabel({ text: s.title.toUpperCase(), sub: s.sub.split('·').pop().trim(), cls: 'story', prio: 4, getPos: o => f.getPos(o),
       visible: () => { const L = Math.log10(camDistTo(f.getPos(tmpL))); return L > 2.2 && L < 9.7 && camLogSun > 6.5; },
