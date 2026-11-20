@@ -57,6 +57,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 #chips::-webkit-scrollbar{display:none}
 .chip{flex:none;height:34px;padding:0 14px;border-radius:17px;font-size:13.5px;color:var(--star);background:rgba(237,234,226,.06);border:1px solid var(--line)}
 .chip:active{background:rgba(255,210,122,.16)}
+.chip{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.pinAdd{padding:0 13px 0 11px}
+.pinChip{min-width:34px;padding:0 12px;color:var(--gold);border-color:rgba(255,210,122,.32);font-weight:500;letter-spacing:.04em}
 #timebar{display:flex;align-items:center;gap:8px;pointer-events:auto;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:22px;padding:5px 6px 5px 12px;height:48px}
 #when{flex:1;min-width:0;line-height:1.2}
 #date{font-size:13.5px;font-weight:300;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -277,6 +280,7 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
     <li>Story facts: NASA, ESA, ESO, NASA Exoplanet Archive (sources on each card)</li>
     <li>New worlds: NASA Exoplanet Archive, refreshed daily. Planets NASA confirmed in the last 90 days, placed at their measured distances</li>
     <li>Milky Way, nearby galaxy shapes and the galaxy web: illustrations based on current maps</li>
+    <li>The faint background dust is an illustration, not real stars</li>
   </ul>
   <h3>Coming next</h3>
   <ul>
@@ -308,7 +312,7 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
 </div>
 
 <button id="cleanBtn" aria-label="Show controls" title="Show controls (Esc)" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg></button>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 <script src="app.js"></script>
 </body>
 </html>
