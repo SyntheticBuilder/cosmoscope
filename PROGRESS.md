@@ -43,6 +43,7 @@ Known limits:
 - Shared links are frozen copies: editing a list later doesn't change links already sent
 - Deleting a favorite is one tap with no undo
 - Long Saved lists get tall (two lines per row)
+- Small polish left from review: Space can re-press a button you tabbed to and then clicked; in the rare copy-the-link fallback, keys stay inactive until you tap elsewhere; the card ☆ tells screen readers "pressed"; a saved star past the catalog end waits for search to load names; "Stop tour" pushes the full-screen button to a third row on phones (as with the built-in Tour)
 - GitHub pauses the daily feed job after 60 days without repo activity — if the feed stops updating, re-enable the workflow in the repo's Actions tab
 
 Next ideas (in order):
