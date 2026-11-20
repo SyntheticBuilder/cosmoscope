@@ -1396,6 +1396,26 @@ const searchUI = initSearch({
   loadExtras: () => { loadConstellations().catch(() => { }); }, // constellations come with the star names
   closeOthers: () => { stopTour(); for (const sel of ['#sheet', '#about', '#newList']) $(sel).classList.remove('open'); card.classList.remove('open'); stopSpeaking(); },
 });
+// ───────────────────────── full screen / clean mode ─────────────────────────
+// Hides all UI (body.clean); the 3D view and time keep running. Browser full screen is a bonus (iOS Safari has none).
+function setClean(on) {
+  const was = document.body.classList.contains('clean');
+  if (on === was) return;
+  document.body.classList.toggle('clean', on);
+  $('#cleanBtn').hidden = !on;
+  if (on) {
+    searchUI.close(); stopSpeaking();
+    try { const p = document.documentElement.requestFullscreen?.(); p?.catch?.(() => { }); } catch { }
+    $('#cleanBtn').focus({ preventScroll: true });
+  } else {
+    if (document.fullscreenElement) { try { document.exitFullscreen().catch(() => { }); } catch { } }
+    $('#fsBtn').focus({ preventScroll: true });
+  }
+}
+$('#fsBtn').onclick = () => setClean(true);
+$('#cleanBtn').onclick = () => setClean(false);
+addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('clean') && !searchUI.isOpen()) setClean(false); });
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.body.classList.contains('clean')) setClean(false); });
 function solarLook() { // above the plane of the planets, looking down at ~35°
   const side = new THREE.Vector3().crossVectors(ECL_N, V(1, 0, 0)).normalize();
   return ECL_N.clone().multiplyScalar(Math.sin(38 * deg)).addScaledVector(side, Math.cos(38 * deg));
