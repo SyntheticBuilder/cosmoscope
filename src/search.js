@@ -52,6 +52,7 @@ const byName = (a, b) => {
  *   storyForStar(idx) → focusable id | null
  *   flyPlace(id), flyStar(idx), readPlace(id), readStar(idx), closeOthers()
  *   namesLoaded()   called once the star name index has loaded
+ *   toast(msg)      shows a short message at the bottom of the screen
  *   saved           favorites, collections and shared lists (see the favorites section in main.js)
  */
 export function initSearch(api) {
@@ -265,7 +266,7 @@ export function initSearch(api) {
 
   // ── open / close ──
   const isOpen = () => panel.classList.contains('open');
-  const savedTab = initSavedTab({ list, S: api.saved, close: () => close(), kindOf: savedKind, isActive: () => isOpen() && tab === 'saved' });
+  const savedTab = initSavedTab({ list, S: api.saved, toast: api.toast, close: () => close(), kindOf: savedKind, isActive: () => isOpen() && tab === 'saved' });
   api.saved.onChange(() => savedTab.draw()); // draws only while the Saved tab is showing, and only if something changed
   // open(t): optionally on a given tab ('search', 'atlas', or any tab added later such as 'saved'); an unknown tab
   // keeps the current one.

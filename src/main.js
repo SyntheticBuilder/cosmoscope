@@ -1556,8 +1556,9 @@ function zoomAt(dLog, clientX, clientY) {
 }
 addEventListener('keydown', e => {
   if (e.target instanceof Element && e.target.closest('input, textarea, select')) return; // typing in the search box
+  const onControl = e.target instanceof Element && e.target.closest('button, [role=tab], a'); // Space presses a focused button, it doesn't pause
   if (e.key === '+' || e.key === '=') zoomBy(-0.25); if (e.key === '-') zoomBy(0.25);
-  if (e.key === ' ') { togglePause(); e.preventDefault(); }
+  if (e.key === ' ' && !onControl) { togglePause(); e.preventDefault(); }
 });
 
 // ───────────────────────── labels ─────────────────────────
@@ -1753,6 +1754,7 @@ const savedAPI = {
 };
 const searchUI = initSearch({
   saved: savedAPI,
+  toast: (m) => toast(m),
   namesLoaded: () => resolveLookups(),
   // every named place you can fly to (dynamic star: and free-point stops excluded)
   places: () => Object.entries(focusables)

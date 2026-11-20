@@ -47,10 +47,10 @@ function el(tag, cls, text) {
 const places = (n) => `${n} ${n === 1 ? 'place' : 'places'}`;
 
 /**
- * list: the panel's <ul>. S: api.saved. close(): closes the panel. kindOf(id) → kind | null.
+ * list: the panel's <ul>. S: api.saved. toast(msg): shows a short message. close(): closes the panel. kindOf(id) → kind | null.
  * isActive() → true while the panel is open on the Saved tab.
  */
-export function initSavedTab({ list, S, close, kindOf, isActive }) {
+export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
   let openColl = null;     // id of the collection shown on its own, else the overview
   let editing = null;      // { kind: 'fav' | 'coll', id, draft, sel: [start, end] | null }
   let chooser = null;      // id of the favorite whose "add to a collection" chooser is open
@@ -132,6 +132,7 @@ export function initSavedTab({ list, S, close, kindOf, isActive }) {
   function commitEdit(refocus = true) {
     const ed = editing; if (!ed) return;
     editing = null;
+    if ([...ed.draft.trim()].length > 60) toast?.('Names can be up to 60 characters; shortened.');
     pending = refocus ? [ed.back] : null; // after a blur, focus stays where it went
     if (ed.kind === 'fav') S.rename(ed.id, ed.draft); else S.renameColl(ed.id, ed.draft);
     draw(true); // also when the name didn't change (no onChange redraw)
