@@ -59,6 +59,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 .chip:active{background:rgba(255,210,122,.16)}
 .chip{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .pinAdd{padding:0 13px 0 11px}
+.saveAdd{padding:0 13px 0 11px;color:var(--gold)}
 .pinChip{min-width:34px;padding:0 12px;color:var(--gold);border-color:rgba(255,210,122,.32);font-weight:500;letter-spacing:.04em}
 #timebar{display:flex;align-items:center;gap:8px;pointer-events:auto;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:22px;padding:5px 6px 5px 12px;height:48px}
 #when{flex:1;min-width:0;line-height:1.2}
@@ -106,6 +107,9 @@ body.clean #top,body.clean #bottom,body.clean #card,body.clean #labels,body.clea
 #cardTitle{font-size:17px;font-weight:500;letter-spacing:.22em}
 #cardSub{font-size:12.5px;color:var(--dim);margin-top:2px;font-weight:300}
 #cardClose{width:30px;height:30px;border-radius:15px;display:grid;place-items:center;color:var(--dim);flex:none}
+#cardBtns{display:flex;align-items:center;gap:2px;flex:none;margin-right:-6px}
+#cardSave{width:36px;height:36px;border-radius:18px;display:grid;place-items:center;color:var(--gold);font-size:19px;line-height:1;flex:none}
+#cardSave:active{background:rgba(255,210,122,.14)}
 #cardHook{font-size:21px;line-height:1.25;font-weight:300;font-style:italic;margin:12px 0 10px}
 #cardFacts{list-style:none;display:grid;gap:8px}
 #cardFacts li{font-size:14.5px;line-height:1.5;font-weight:300;padding-left:14px;position:relative;color:#d9d6ce}
@@ -181,7 +185,7 @@ input[type=range]{width:100%;accent-color:var(--gold)} input[type=range]:disable
 }
 
 #toast{position:fixed;left:50%;top:calc(var(--sat) + 104px);transform:translate(-50%,-6px);background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);
-  padding:9px 16px;border-radius:18px;font-size:13px;font-weight:300;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;max-width:88vw;text-align:center}
+  padding:9px 16px;border-radius:18px;font-size:13px;font-weight:300;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;max-width:88vw;text-align:center;overflow-wrap:anywhere}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 
 /* intro */
@@ -227,7 +231,8 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
 <div id="card" role="dialog" aria-live="polite">
   <button id="cardGrab" aria-label="Collapse card"></button>
   <div id="cardHead"><div><span id="cardNew" hidden>NEW</span><div id="cardTitle"></div><div id="cardSub"></div></div>
-    <button id="cardClose" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button></div>
+    <div id="cardBtns"><button id="cardSave" aria-label="Save this place" title="Save this place">☆</button>
+    <button id="cardClose" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button></div></div>
   <div id="cardBody">
     <p id="cardHook"></p>
     <ul id="cardFacts"></ul>

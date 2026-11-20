@@ -48,6 +48,8 @@ const byName = (a, b) => {
  *   starsReady() → bool,  starCount() → number
  *   storyForStar(idx) → focusable id | null
  *   flyPlace(id), flyStar(idx), readPlace(id), readStar(idx), closeOthers()
+ *   namesLoaded()   called once the star name index has loaded
+ *   saved           favorites, collections and shared lists (see the favorites section in main.js)
  */
 export function initSearch(api) {
   const panel = $('#searchPanel'), input = $('#searchInput'), list = $('#spList'), status = $('#spStatus');
@@ -85,8 +87,13 @@ export function initSearch(api) {
   }
 
   // ── loading the star names (once) ──
-  async function loadStars() {
-    if (loadState === 'loading' || loadState === 'ready') return;
+  let loadPromise = null;
+  function loadStars() { // one shared promise while loading; after an error the next call tries again
+    if (!loadPromise) loadPromise = loadStarsOnce().finally(() => { if (loadState !== 'ready') loadPromise = null; });
+    return loadPromise;
+  }
+  async function loadStarsOnce() {
+    if (loadState === 'ready') return;
     loadState = 'loading'; showStatus();
     try {
       const r = await fetch('starindex.txt');
@@ -103,6 +110,7 @@ export function initSearch(api) {
     }
     showStatus();
     if (tab === 'search') runSearch();
+    if (loadState === 'ready') { try { api.namesLoaded?.(); } catch (err) { console.warn(err); } }
   }
   function showStatus() {
     let t = '';
@@ -250,8 +258,12 @@ export function initSearch(api) {
 
   // ── open / close ──
   const isOpen = () => panel.classList.contains('open');
-  function open() {
-    if (isOpen()) { input.focus(); return; }
+  // open(t): optionally on a given tab ('search', 'atlas', or any tab added later such as 'saved'); an unknown tab
+  // keeps the current one.
+  function open(t) {
+    const want = typeof t === 'string' && [...panel.querySelectorAll('[role=tab]')].some((b) => b.dataset.tab === t) ? t : null;
+    if (isOpen()) { if (want && want !== tab) setTab(want); else input.focus(); return; }
+    if (want) tab = want;
     api.closeOthers();
     refreshPlaces();
     panel.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
@@ -287,6 +299,8 @@ export function initSearch(api) {
       if (tab === 'atlas') renderAtlas(); else runSearch();
       list.scrollTop = y;
     },
+    // Load the star name index now (it otherwise loads on first open); resolves to the rows, or null if it failed.
+    loadNames: () => loadStars().then(() => (loadState === 'ready' ? index.rows : null)),
     row: (idx) => (loadState === 'ready' ? index.rows[idx] || null : null),
     rows: () => (loadState === 'ready' ? index.rows : null),
     // Hook for later features: entries { key, name, kind, sub, ly, category, fly(), read() }.
