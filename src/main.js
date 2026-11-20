@@ -1368,6 +1368,11 @@ const cam = {
 };
 const MIN_LOG = Math.log10(1e-6), MAX_LOG = Math.log10(UNIVERSE_R * 3.2);
 function focusPos(id, out) { const f = focusables[id]; return f ? f.getPos(out) : out.set(0, 0, 0); }
+// The camera orientation that looks at the target from direction lookFrom (screen-up: up, default ecliptic north).
+function lookQ(lookFrom, up) {
+  const U = up || ECL_N; const m = new THREE.Matrix4().lookAt(lookFrom.clone().normalize(), V(), U.clone().cross(lookFrom).lengthSq() > 1e-6 ? U : V(0, 1, 0));
+  return new THREE.Quaternion().setFromRotationMatrix(m);
+}
 function flyTo(id, dist, dur, lookFrom, up) { // up: optional screen-up direction for lookFrom (default ecliptic north)
   const f = focusables[id]; if (!f) return;
   const fromPos = cam.target.clone(); const toPos = focusPos(id, V());
@@ -1377,7 +1382,7 @@ function flyTo(id, dist, dur, lookFrom, up) { // up: optional screen-up directio
   const bump = Math.max(0, peak - Math.max(fromLog, toLog));
   const span = Math.abs(toLog - fromLog) + bump * 2;
   let toQ = null;
-  if (lookFrom) { const U = up || ECL_N; const m = new THREE.Matrix4().lookAt(lookFrom.clone().normalize(), V(), U.clone().cross(lookFrom).lengthSq() > 1e-6 ? U : V(0, 1, 0)); toQ = new THREE.Quaternion().setFromRotationMatrix(m); }
+  if (lookFrom) toQ = lookQ(lookFrom, up);
   cam.anim = { id, fromPos, fromLog, toLog, bump, t0: performance.now(), dur: dur ?? clamp(1200 + span * 260, 1400, 5200), fromQ: cam.q.clone(), toQ };
   cam.focusId = id;
   showCard(f.story ? (typeof f.story === 'string' ? STORIES[f.story] : f.story) : null, id);
@@ -1671,10 +1676,11 @@ function updateLabels() {
 const $ = s => document.querySelector(s);
 const card = $('#card');
 let cardStoryKey = null, cardFocusId = null, cardObjId = null;
-// objId: the focusable the card is about (what ☆ saves), when there is one; read-only cards pass it explicitly.
+// objId: what ☆ saves: the focusable id the card is about, or a function returning { view, label } (read-only cards
+// whose "Fly there" goes to a computed spot), or null when the card has no place (then ☆ is hidden).
 function showCard(story, focusId, objId = focusId) {
   cardFocusId = focusId; cardObjId = objId ?? null;
-  $('#cardSave').textContent = '☆';
+  $('#cardSave').textContent = '☆'; $('#cardSave').hidden = !cardObjId; // no place to save: no ☆
   selectConstellation(story?.con || null); // a constellation card draws its lines; any other card clears them
   if (!story) { card.classList.remove('open'); return; }
   cardStoryKey = story;
@@ -1720,7 +1726,7 @@ const storyOf = f => f?.story ? (typeof f.story === 'string' ? STORIES[f.story] 
 // Favorites state (the logic is in the "favorites" section further down). Declared here, before initSearch, so the
 // Saved tab can subscribe while it is being set up. Own lists load once the star data is in (story stops and
 // star:<idx> ids only exist then).
-const saved = { favs: [], colls: [{ id: TOP10_ID, name: TOP10_NAME, items: [] }], shared: null, loaded: false, starsFailed: false, warned: false, listeners: new Set() };
+const saved = { favs: [], colls: [{ id: TOP10_ID, name: TOP10_NAME, items: [] }], shared: null, loaded: false, starsDone: false, warned: false, warnNow: false, listeners: new Set() };
 const savedAPI = {
   ready: () => saved.loaded,
   list: () => saved.favs.slice(),
@@ -1806,7 +1812,7 @@ function loadConstellations() {
         con.list = list; for (const c of list) con.byAbbr.set(c.abbr, c);
         searchUI.addExtras(list.flatMap(c => {
           const e = { key: 'c:' + c.abbr, name: c.name, kind: 'Constellation', sub: c.english && c.english !== c.name ? c.english : '', ly: null, category: 'Constellations',
-            fly: () => { stopTour(); flyToConstellation(c.abbr); }, read: () => showCard(conStory(c), cam.focusId, null), flyDisabled: () => !starData?.pos };
+            fly: () => { stopTour(); flyToConstellation(c.abbr); }, read: () => showCard(conStory(c), cam.focusId, () => conSaveView(c.abbr)), flyDisabled: () => !starData?.pos };
           return e.sub ? [e, { ...e, name: c.english, alias: true }] : [e]; // "Great Bear" finds Ursa Major
         }));
         return list;
@@ -1825,18 +1831,23 @@ function conStory(c) {
 // From our Solar System, facing the figure with celestial north up. The viewpoint is 300 AU from the Sun, off to
 // the side of the line of sight (toward ecliptic north), so the Sun and planets sit outside the view instead of in
 // the middle of the figure. From the stars' distances (≥ 4 light-years) 300 AU changes nothing you could see.
-function flyToConstellation(abbr) {
-  const c = con.byAbbr.get(abbr); if (!c || !starData?.pos) return;
-  const d = meanDirection(lineStars(c.lines), starData.pos, starData.vel, simYears()); if (!d) return;
+function constellationView(abbr) { // where "Fly there" ends: { c, target, lookFrom, up } or null
+  const c = con.byAbbr.get(abbr); if (!c || !starData?.pos) return null;
+  const d = meanDirection(lineStars(c.lines), starData.pos, starData.vel, simYears()); if (!d) return null;
   const fig = V(d[0], d[1], d[2]);
   const eye = V(...perpendicular(d, [ECL_N.x, ECL_N.y, ECL_N.z])).multiplyScalar(CON_VIEW_AU);
   // aim a little below the figure's center so it sits above the card (bottom sheet on phones)
   const north = V(...perpendicular(d, [0, 0, 1])), a = (innerWidth < 820 ? 9 : 2) * deg;
   const dir = fig.clone().multiplyScalar(Math.cos(a)).addScaledVector(north, -Math.sin(a));
   const target = eye.clone().addScaledVector(dir, CON_VIEW_AU);
+  return { c, target, lookFrom: dir.clone().negate(), up: V(0, 0, 1) };
+}
+function flyToConstellation(abbr) {
+  const cv = constellationView(abbr); if (!cv) return;
+  const { c, target } = cv;
   const id = 'con:' + abbr;
   focusables[id] = { name: c.name, getPos: o => o.copy(target), radius: CON_VIEW_AU / 10, defaultDist: CON_VIEW_AU, story: conStory(c) };
-  flyTo(id, CON_VIEW_AU, undefined, dir.clone().negate(), V(0, 0, 1));
+  flyTo(id, CON_VIEW_AU, undefined, cv.lookFrom, cv.up);
 }
 function selectConstellation(abbr) {
   con.selAbbr = abbr && con.byAbbr.has(abbr) ? abbr : null;
@@ -2076,14 +2087,16 @@ const STAR_ID = /^star:(\d{1,9})$/;
 function savedChanged() { for (const cb of [...saved.listeners]) { try { cb(); } catch (err) { console.warn(err); } } }
 function favOpts() { return { speeds: SPEEDS.length, isKnownId: favKnownId, starName: quickStarName }; }
 // true: an own, lasting focusable or a star in range. 'lookup': a star we can't check yet (or out of range: its
-// saved name may still find it). false: anything else.
+// saved name may still find it), or, before the star data is in, a plain id that may be a story stop made then.
+// false: anything else.
 function favKnownId(id) {
   if (typeof id !== 'string') return false;
   const m = STAR_ID.exec(id);
   if (m) return starData?.pos && +m[1] < starData.N ? true : 'lookup';
   if (id.startsWith('star:') || DYNAMIC_ID.test(id)) return false;
   const f = hasOwn(focusables, id) ? focusables[id] : null;
-  return !!(f && !f.free && typeof f.getPos === 'function');
+  if (f && !f.free && typeof f.getPos === 'function') return true;
+  return !saved.starsDone && /^[A-Za-z0-9_-]{1,40}$/.test(id) ? 'lookup' : false;
 }
 // The best catalog name for a star: the name index's first name when it is loaded, else the named-star list.
 function quickStarName(idx) {
@@ -2125,32 +2138,58 @@ function makeFav(view, label) {
   return validFavorite(fav, favOpts()) ? fav : null;
 }
 const store = pinStore;
-function persist(which) { // false only on the first failed write (the caller then tells the visitor, once)
-  if (!saved.loaded) return true; // nothing read yet: never overwrite the stored lists
+// Write the lists. A failed write keeps everything in memory for this visit; the first failure is announced once by
+// the next done() (so it can join that action's own toast instead of being overwritten by it).
+function persist(which) {
   const ok = (which !== 'colls' ? saveFavs(store, saved.favs) : true) && (which !== 'favs' ? saveColls(store, saved.colls) : true);
-  if (!ok && !saved.warned) { saved.warned = true; return false; }
-  return true;
+  if (!ok && !saved.warned) { saved.warned = true; saved.warnNow = true; }
+  return ok;
 }
 const STORE_FAIL = "This browser can't keep saved views.";
+// End of every change: tell the Saved tab, then show the action's toast (if any) with the one-time storage warning.
+function done(msg = '', ms = 3200) {
+  const warn = saved.warnNow; saved.warnNow = false;
+  savedChanged();
+  if (warn) toast(msg ? msg + ' · ' + STORE_FAIL : STORE_FAIL, 5000);
+  else if (msg) toast(msg, ms);
+}
 function addFav(fav) {
   if (saved.favs.length >= LIMITS.favs) { toast(`You have ${LIMITS.favs} favorites: delete one first.`); return null; }
   saved.favs = [fav, ...saved.favs];
-  const ok = persist('favs'); savedChanged();
-  toast(`Saved as ‘${fav.name}’` + (ok ? '' : ' · ' + STORE_FAIL), ok ? 3200 : 5000);
+  persist('favs'); done(`Saved as ‘${fav.name}’`);
   return fav;
 }
-// ★ Save (chip) or ☆ (card). From a card about an object you aren't following, that object at its usual distance.
-function saveCurrent(fromCardFocusId) {
+const camQ = () => [cam.q.x, cam.q.y, cam.q.z, cam.q.w];
+// An object as the place: where flying to it ends (the running flight's end if it is flying there now).
+function objectView(id, keepFocus) {
+  const f = focusables[id]; const flying = cam.anim?.id === id;
+  return { t: focusPos(id, V()).toArray(), q: flying && cam.anim.toQ ? cam.anim.toQ.toArray() : camQ(),
+    logD: flying ? cam.anim.toLog : Math.log10(f.defaultDist), focus: keepFocus ? id : null, anchor: null, off: null };
+}
+// A constellation card: the spot its "Fly there" ends at (a fixed spot, so saved as one).
+function conSaveView(abbr) {
+  const cv = constellationView(abbr); if (!cv) return null;
+  return { view: { t: cv.target.toArray(), q: lookQ(cv.lookFrom, cv.up).toArray(), logD: Math.log10(CON_VIEW_AU), focus: null, anchor: null, off: null }, label: cv.c.name };
+}
+// ★ Save (chip) or ☆ (card). From a card about an object you aren't following, the place its "Fly there" leads to.
+function saveCurrent(fromCard) {
   let view, label;
-  const id = typeof fromCardFocusId === 'string' && favKnownId(fromCardFocusId) === true ? fromCardFocusId : null;
-  if (id && (id !== cam.focusId || cam.anim)) {
-    const f = focusables[id];
-    view = { t: focusPos(id, V()).toArray(), q: cam.anim?.id === id && cam.anim.toQ ? cam.anim.toQ.toArray() : [cam.q.x, cam.q.y, cam.q.z, cam.q.w],
-      logD: cam.anim?.id === id ? cam.anim.toLog : Math.log10(f.defaultDist), focus: id, anchor: null, off: null };
-    label = viewLabel(view);
+  const spec = typeof fromCard === 'function' ? fromCard() : null;
+  const id = typeof fromCard === 'string' && hasOwn(focusables, fromCard) && !focusables[fromCard].free ? fromCard : null;
+  const lasting = id && favKnownId(id) === true;
+  const conAbbr = id && id.startsWith('con:') ? id.slice(4) : null;
+  if (typeof fromCard === 'function') {
+    if (!spec) { toast("This place couldn't be saved."); return null; }
+    ({ view, label } = spec);
+  } else if (id && (id !== cam.focusId || cam.anim)) {
+    const cs = conAbbr && !(cam.anim?.id === id && cam.anim.toQ) ? conSaveView(conAbbr) : null;
+    if (cs) ({ view, label } = cs);
+    else if (lasting || DYNAMIC_ID.test(id)) { view = objectView(id, lasting); label = lasting ? viewLabel(view) : objName(id); }
+    else { toast("This place couldn't be saved."); return null; }
   } else {
     view = stableView(captureView());
-    label = view.focus || view.anchor ? viewLabel(view) : cam.anim ? scaleNameAt(cam.logD, camLogSun) : scaleName(cam.logD, camLogSun);
+    const followingDyn = !cam.anim && /^(con|new):/.test(cam.focusId) ? objName(cam.focusId) : '';
+    label = view.focus || view.anchor ? viewLabel(view) : followingDyn || (cam.anim ? scaleNameAt(cam.logD, camLogSun) : scaleName(cam.logD, camLogSun));
   }
   const fav = makeFav(view, label);
   if (!fav) { toast("This view couldn't be saved."); return null; }
@@ -2179,52 +2218,49 @@ const findFav = id => saved.favs.find(f => f.id === id) || saved.shared?.items.f
 function renameFav(id, name) {
   const f = saved.favs.find(x => x.id === id); if (!f) return null;
   f.name = cleanName(name, f.autoName);
-  persist('favs'); savedChanged(); return f.name;
+  persist('favs'); done(); return f.name;
 }
 function removeFav(id) {
   const f = saved.favs.find(x => x.id === id); if (!f) return false;
   saved.favs = saved.favs.filter(x => x !== f);
-  persist('favs'); savedChanged(); toast(`Removed ‘${f.name}’`); return true;
+  persist('favs'); done(`Removed ‘${f.name}’`); return true;
 }
-function notLoaded() { if (saved.loaded) return false; toast('Still loading your saved views…'); return true; }
 function addToColl(collId, favId) {
-  if (notLoaded()) return false;
   const c = saved.colls.find(x => x.id === collId), f = findFav(favId); if (!c || !f) return false;
   const top = c.id === TOP10_ID;
   const r = addItem(c, f, top ? LIMITS.top10 : LIMITS.items);
   if (!r.ok) { toast(r.reason === 'dup' ? `Already in ${c.name}` : top ? 'Top 10 is full: remove one first.' : `${c.name} is full (${LIMITS.items} places): remove one first.`); return false; }
   saved.colls = saved.colls.map(x => x === c ? r.coll : x);
-  const ok = persist('colls'); savedChanged(); toast(`Added to ${c.name}` + (ok ? '' : ' · ' + STORE_FAIL)); return true;
+  persist('colls'); done(`Added to ${c.name}`); return true;
 }
-function newColl(name, items = []) { // → the new collection, or null at the limit
-  if (notLoaded()) return null;
+function newColl(name, items = [], okMsg = null) { // → the new collection, or null at the limit
   if (saved.colls.length >= LIMITS.colls) { toast(`Up to ${LIMITS.colls} collections: delete one first.`); return null; }
   const c = { id: newId(), name: uniqueName(cleanName(name, 'New collection'), saved.colls.map(x => x.name)), items };
   saved.colls = [...saved.colls, c];
-  const ok = persist('colls'); savedChanged(); if (!ok) toast(STORE_FAIL); return c;
+  persist('colls'); done(okMsg ? okMsg(c) : ''); return c;
 }
 function renameColl(collId, name) {
   const c = saved.colls.find(x => x.id === collId); if (!c || c.id === TOP10_ID) return null;
   const n = uniqueName(cleanName(name, c.name), saved.colls.filter(x => x !== c).map(x => x.name));
   saved.colls = saved.colls.map(x => x === c ? { ...c, name: n } : x);
-  persist('colls'); savedChanged(); return n;
+  persist('colls'); done(); return n;
 }
 function removeColl(collId) {
   const c = saved.colls.find(x => x.id === collId); if (!c || c.id === TOP10_ID) return false;
   saved.colls = saved.colls.filter(x => x !== c);
-  persist('colls'); savedChanged(); toast(`Removed ‘${c.name}’`); return true;
+  persist('colls'); done(`Removed ‘${c.name}’`); return true;
 }
 function editColl(collId, fn) {
   const c = saved.colls.find(x => x.id === collId); if (!c) return false;
   const n = fn(c); if (n === c) return false;
   saved.colls = saved.colls.map(x => x === c ? n : x);
-  persist('colls'); savedChanged(); return true;
+  persist('colls'); done(); return true;
 }
 function saveShared() {
-  const s = saved.shared; if (!s || notLoaded()) return null;
-  const c = newColl(s.name, s.items.slice(0, LIMITS.items).map(f => ({ ...JSON.parse(JSON.stringify(f)), id: newId() })) /* a star still being checked keeps its flag */);
-  if (c) toast(`Saved as ‘${c.name}’`);
-  return c;
+  const s = saved.shared; if (!s) return null;
+  // a link holds at most 50 items (LIMITS.linkItems), the same as a collection, so nothing is cut here
+  const items = s.items.map(f => ({ ...JSON.parse(JSON.stringify(f)), id: newId() })); // a star still being checked keeps its flag
+  return newColl(s.name, items, c => `Saved as ‘${c.name}’`);
 }
 function startListTour(items) {
   const list = (items || []).filter(f => f?.view && f.time);
@@ -2239,7 +2275,9 @@ async function shareSaved(x) {
   const title = typeof x.name === 'string' ? x.name : 'Cosmoscope';
   let url;
   try { url = location.origin + location.pathname + '#s=' + encodeShare({ name: title, items }); } catch { toast("This link couldn't be made."); return; }
-  if (navigator.share) {
+  // the share sheet on phones and tablets only; elsewhere copy the link
+  let touch = false; try { touch = matchMedia('(pointer: coarse)').matches; } catch { }
+  if (touch && navigator.share) {
     try { await navigator.share({ title, url }); return; } catch (err) { if (err?.name === 'AbortError') return; }
   }
   try { await navigator.clipboard.writeText(url); toast('Link copied'); return; } catch { }
@@ -2263,10 +2301,15 @@ function resolveStarRef(idx, name) {
 // → 'ok' | 'drop' | 'wait'; rewrites the star ids in place when the star moved to another index.
 function resolveItem(f) {
   if (!f.needsLookup) return 'ok';
-  if (!starData?.pos) return saved.starsFailed ? 'drop' : 'wait';
   const map = new Map();
   for (const id of [f.view.focus, f.view.anchor]) {
-    const idx = starIdxOf(id); if (idx === null || map.has(id)) continue;
+    if (!id || map.has(id)) continue;
+    const idx = starIdxOf(id);
+    if (idx === null) { // a story stop that didn't exist yet when the list loaded
+      if (favKnownId(id) === true) continue;
+      return saved.starsDone ? 'drop' : 'wait';
+    }
+    if (!starData?.pos) return saved.starsDone ? 'drop' : 'wait';
     const r = resolveStarRef(idx, f.starName);
     if (r === undefined) return 'wait';
     if (r === null) return 'drop';
@@ -2282,25 +2325,29 @@ let lookupLoading = false;
 function resolveLookups(final = false) {
   try {
     let wait = false, dropShared = 0, dropOwn = 0;
+    const msgs = [];
     const sweep = (items, own) => items.filter(f => {
       const r = resolveItem(f);
       if (r === 'wait') { if (final && !own) { dropShared++; return false; } wait = true; return true; }
+      // own items are only removed when the catalog really lacks them; if the star data failed this visit, keep them
       if (r === 'drop') { if (own && !starData?.pos) return true; own ? dropOwn++ : dropShared++; return false; }
       return true;
     });
     const anyFlag = list => list.some(f => f.needsLookup);
+    let changed = false;
     if (saved.shared && anyFlag(saved.shared.items)) {
-      saved.shared = { ...saved.shared, items: sweep(saved.shared.items, false) };
-      if (!saved.shared.items.length) { saved.shared = null; toast("This link couldn't be opened"); }
-      else if (dropShared) toast(`${dropShared === 1 ? 'A star' : dropShared + ' stars'} in this link couldn't be found, so ${dropShared === 1 ? 'it was' : 'they were'} left out.`, 5000);
+      saved.shared = { ...saved.shared, items: sweep(saved.shared.items, false) }; changed = true;
+      if (!saved.shared.items.length) { saved.shared = null; msgs.push("This link couldn't be opened"); }
+      else if (dropShared) msgs.push(`${dropShared === 1 ? 'A place' : dropShared + ' places'} in this link couldn't be found, so ${dropShared === 1 ? 'it was' : 'they were'} left out.`);
     }
-    let ownChanged = false;
-    if (saved.loaded && anyFlag(saved.favs)) { const n = saved.favs.length; saved.favs = sweep(saved.favs, true); ownChanged = true; if (saved.favs.length !== n) persist('favs'); }
-    if (saved.loaded && saved.colls.some(c => anyFlag(c.items))) {
-      saved.colls = saved.colls.map(c => anyFlag(c.items) ? { ...c, items: sweep(c.items, true) } : c); ownChanged = true; persist('colls');
+    if (anyFlag(saved.favs)) { const n = saved.favs.length; saved.favs = sweep(saved.favs, true); changed = true; if (saved.favs.length !== n) persist('favs'); }
+    if (saved.colls.some(c => anyFlag(c.items))) {
+      const before = saved.colls.reduce((n, c) => n + c.items.length, 0);
+      saved.colls = saved.colls.map(c => anyFlag(c.items) ? { ...c, items: sweep(c.items, true) } : c); changed = true;
+      if (saved.colls.reduce((n, c) => n + c.items.length, 0) !== before) persist('colls');
     }
-    if (dropOwn) toast(`${dropOwn === 1 ? 'A saved star' : dropOwn + ' saved stars'} couldn't be found in the star catalog and ${dropOwn === 1 ? 'was' : 'were'} removed.`, 5000);
-    if (ownChanged || dropShared || saved.shared) savedChanged();
+    if (dropOwn) msgs.push(`${dropOwn === 1 ? 'A saved place' : dropOwn + ' saved places'} couldn't be found in the catalog and ${dropOwn === 1 ? 'was' : 'were'} removed.`);
+    if (changed || saved.warnNow) done(msgs.join(' '), 5000);
     if (wait && !final && !lookupLoading && starData?.pos) { // the checks need the star name index: load it now
       lookupLoading = true;
       searchUI.loadNames().then(rows => { lookupLoading = false; if (!rows) resolveLookups(true); }) // success: namesLoaded() runs it
@@ -2319,7 +2366,7 @@ function takeShareHash() { // read once, then clear it so a reload doesn't open 
   } catch { return null; }
 }
 let pendingShare = takeShareHash();
-addEventListener('hashchange', () => { const s = takeShareHash(); if (s === null) return; if (saved.loaded) openShared(s); else pendingShare = s; });
+addEventListener('hashchange', () => { const s = takeShareHash(); if (s === null) return; if (saved.starsDone) openShared(s); else pendingShare = s; });
 function openShared(str) {
   const res = decodeShare(str, favOpts());
   if (!res) { toast("This link couldn't be opened"); return; }
@@ -2329,19 +2376,16 @@ function openShared(str) {
   setClean(false); stopTour();
   searchUI.open('saved');
   toast(`Shared with you: ‘${res.name}’`);
-  resolveLookups(); savedChanged();
+  savedChanged(); resolveLookups();
 }
-// Own lists load after the star data (story stops and stars exist then). Anything saved before that is kept.
-function initSaved(starsOk) {
-  saved.starsFailed = !starsOk;
-  const early = saved.favs;
-  const stored = loadFavs(store, favOpts());
-  const ids = new Set(early.map(f => f.id));
-  saved.favs = [...early, ...stored.filter(f => !ids.has(f.id))].slice(0, LIMITS.favs);
-  saved.colls = loadColls(store, favOpts());
-  saved.loaded = true;
-  if (early.length && !persist('favs')) toast(STORE_FAIL);
-  savedChanged();
+// Own lists load right away (localStorage is synchronous), so limits always see the real lists and every save is
+// written at once. Story stops and stars only exist once the star data is in: until then their items carry
+// needsLookup and are confirmed by resolveLookups() afterwards. Shared links are opened then too.
+saved.favs = loadFavs(store, favOpts());
+saved.colls = loadColls(store, favOpts());
+saved.loaded = true;
+function afterStars() {
+  saved.starsDone = true;
   resolveLookups();
   if (pendingShare !== null) { const s = pendingShare; pendingShare = null; openShared(s); }
 }
@@ -2692,5 +2736,5 @@ const starsReady = loadStars().then(() => { document.body.classList.add('ready')
 setTimeout(() => { $('#intro').classList.add('gone'); }, 2600);
 setTimeout(hideHint, 11000);
 initNewWorlds(starsReady);
-starsReady.then(() => initSaved(!!starData?.pos));
+starsReady.then(afterStars);
 window.__cosmo = { cam, flyTo, settings, time, setSpeed, focusables, saved: savedAPI };
