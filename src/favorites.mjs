@@ -16,7 +16,9 @@ const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const vecOk = (a, n) => Array.isArray(a) && a.length === n && a.every(finite);
 const isObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
-const nameOk = (s) => typeof s === 'string' && s.length > 0 && s.length <= LIMITS.name;
+const cpLen = (s) => Array.from(s).length;
+const cpSlice = (s, n) => Array.from(s).slice(0, n).join('');
+const nameOk = (s) => typeof s === 'string' && s.length > 0 && s.length <= LIMITS.name * 2 && cpLen(s) <= LIMITS.name;
 const optId = (v) => v === null || v === undefined || (typeof v === 'string' && v.length > 0 && v.length < 200);
 
 export function newId() {
@@ -154,13 +156,12 @@ export function saveColls(storage, colls) {
 // ── names ──
 export function autoName(label, dateText) {
   const tail = dateText ? ' · ' + dateText : '';
-  const room = Math.max(1, LIMITS.name - tail.length);
-  const head = Array.from(String(label ?? '')).slice(0, room).join('');
-  return (head + tail).slice(0, LIMITS.name);
+  const room = Math.max(1, LIMITS.name - cpLen(tail));
+  return cpSlice(cpSlice(String(label ?? ''), room) + tail, LIMITS.name);
 }
 
 export function cleanName(input, auto) {
-  const s = Array.from(String(input ?? '').trim()).slice(0, LIMITS.name).join('').trim();
+  const s = cpSlice(String(input ?? '').trim(), LIMITS.name).trim();
   return s || auto;
 }
 
@@ -169,7 +170,7 @@ export function uniqueName(name, takenNames) {
   if (!taken.has(name)) return name;
   for (let n = 2; ; n++) {
     const suffix = ' (' + n + ')';
-    const cand = name.slice(0, Math.max(0, LIMITS.name - suffix.length)) + suffix;
+    const cand = cpSlice(name, Math.max(0, LIMITS.name - suffix.length)) + suffix;
     if (!taken.has(cand)) return cand;
   }
 }

@@ -236,3 +236,26 @@ test('newId gives distinct short strings', () => {
   assert.notEqual(a, b);
   assert.ok(a.length > 0 && a.length < 40);
 });
+
+test('names are measured in code points everywhere', () => {
+  const e60 = cleanName('😀'.repeat(60), 'auto');
+  assert.equal(Array.from(e60).length, 60);
+  assert.equal(validFavorite(mk({ name: e60, autoName: e60 }), opts), true);
+  assert.equal(Array.from(cleanName('😀'.repeat(61), 'auto')).length, 60);
+  assert.equal(validFavorite(mk({ name: '😀'.repeat(61) }), opts), false);
+  const s = mem(); saveFavs(s, [mk({ name: e60, autoName: e60 })]);
+  assert.equal(loadFavs(s, opts).length, 1);
+  assert.equal(decodeShare(encodeShare({ name: 'a', items: [mk({ name: e60 })] }), opts).items.length, 1);
+});
+
+test('autoName and uniqueName never leave lone surrogates', () => {
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  for (const n of [55, 56, 57, 58, 59, 60]) {
+    const a = autoName('😀'.repeat(n), '😀 Nov 20, 2026');
+    assert.equal(lone.test(a), false);
+    assert.ok(Array.from(a).length <= 60);
+    const u = uniqueName('😀'.repeat(n), ['😀'.repeat(n)]);
+    assert.equal(lone.test(u), false);
+    assert.ok(Array.from(u).length <= 60);
+  }
+});
