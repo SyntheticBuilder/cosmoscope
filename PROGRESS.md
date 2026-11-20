@@ -13,6 +13,7 @@ Done:
 - Story systems: Alpha Centauri A+B, Sirius A+B, TRAPPIST-1 (7 planets), Betelgeuse
 - 10 more motion stories: Proxima Centauri b+d, Barnard's Star (moves with time), Gliese 710 (future Oort-cloud flyby you can watch at 1M yr/s), 51 Pegasi b (exaggerated star wobble), Kepler-16 b (planet around two stars), Algol (eclipsing pair + third star at 90°), Polaris (29-yr orbit), Mira (13-ly tail), Orion Nebula, Sagittarius A* (S2 at its real current orbital phase)
 - 10 tap-to-read stops (not in the Tour, no narration): Vega (flattened by its spin), 61 Cygni, Luhman 16, Capella, Pleiades, Crab Nebula, Eta Carinae (hourglass cloud), Cygnus X-1, Pillars of Creation, Omega Centauri
+- 20 more tap-to-read stops (Nov 20; not in the Tour, no narration): HR 8799 (4 imaged planets), Beta Pictoris (3 planets incl. 2026's d + dust disk), Fomalhaut (ring; the "planet" that was a dust cloud), Epsilon Eridani, Tau Ceti (candidate planets, flagged), Spica, Arcturus and Kapteyn's Star (follow the moving catalog star), Hyades, Ring Nebula, Hulse–Taylor pulsar, Antares, Zeta Ophiuchi (runaway + bow shock), 55 Cancri e, Cassiopeia A, SN 1987A, WR 104 (dust pinwheel spinning at its real 241.5-day period), Epsilon Indi Ab, Kepler-90 (8 planets), Gaia BH1
 - Story cards with sources, "Listen" narration, guided Tour (14 stops; adds Proxima b, Kepler-16 b, Orion Nebula, Sagittarius A*)
 - Time controls: Live, up to 1 million years/sec, reverse, pause
 - Settings: trail length, how many stars show trails, spiral fitting, names, orbit paths
@@ -33,6 +34,7 @@ Known limits:
 - Story-system orbit orientations are illustrative (except Kepler-16 and Algol's inner pair, drawn edge-on as seen from Earth)
 - Gliese 710 uses the Gaia DR3 flyby solution (0.052 pc in 1.29 Myr) instead of its older HYG motion, which would miss by ~1.3 ly
 - Orion, Crab, Pillars, Omega Centauri and Eta Carinae clouds and Mira's tail are illustrations (labeled); Eta Carinae orbit/sizes follow published models (approximate); Cygnus X-1 uses the 2021 radio distance (2.22 kpc), not HYG's; Sagittarius A* only shows S2 so far
+- Batch-3 clouds/disks are illustrations (Beta Pic disk, Fomalhaut & Epsilon Eridani rings, Zeta Oph bow shock, Ring Nebula, Cas A, SN 1987A, WR 104 spiral). WR 104's spiral always faces the camera (we see it face-on from Earth). HR 8799 orbits drawn circular. Hulse–Taylor placed at the VLBI distance (4.1 kpc; estimates 4–10 kpc). Label count at "Nearby stars" scale is getting high; consider a label-density pass
 - Wide constellations don't fit the width of a phone screen
 - Pins are saved per browser/device only (no sharing yet); they save the place, not the time. Pins on a catalog star depend on the star list's order, and pins on a constellation or a new-world planet fall back to the saved spot if that data hasn't loaded
 - With 9 pins, the scale chips (Earth, Solar System...) start off-screen on phones; scroll the chip row
