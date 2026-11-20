@@ -1,6 +1,6 @@
 # Favorites, collections, shared links and My Top 10: design
 
-Date: Nov 20, 2026 · Status: draft, waiting for the owner's approval
+Date: Nov 20, 2026 · Status: approved by the owner ("Approve, build it")
 
 ## Why
 The owner wants people to keep the places they love beyond the 9 quick pins, gather them into collections, and send a collection to a friend. The friend gets a list to tap through, or presses Tour to be flown through it. A personal "My Top 10" works the same way. This is part 1. Part 2, trending places (most visited today, this week, this month), comes later and needs a small Cloudflare counter (owner's pick: "Split, Cloudflare later").
@@ -91,6 +91,8 @@ Trending (part 2), accounts, syncing between devices, links that update after sh
 - **Copies:** a collection item is a copy, so renaming or deleting the original favorite doesn't change the copy. The same favorite can't be added to one collection twice; trying shows the toast "Already in <collection>". Adding to a full Top 10 shows the toast "Top 10 is full: remove one first."
 - **Save to my collections:** makes one new collection with the shared name, adding " (2)", " (3)" and so on if that name is taken. At the 30-collection limit it shows a toast and saves nothing.
 - **Rounding in links:** `t` is rounded to 7 significant digits. `off`, `logD` and `q` are rounded to 4 decimals. A free spot near a moving object is stored as anchor plus offset, so it stays exact relative to that object.
+
+- **Open questions defaulted (owner approved without answering):** collection tours dwell about 9 s like the built-in Tour; shared lists are anonymous (no "From …" name); no ready-made "Cosmoscope highlights" collection.
 
 ## Left to the builder
 Exact icons and styling within the existing look, the copy of minor toasts, and code layout. Pure logic (record shape, link encode and decode, validation, auto names) goes in a tested module, like `zoom.mjs` and `catalog.mjs`.
