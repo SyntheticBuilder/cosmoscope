@@ -44,8 +44,8 @@ Next ideas (in order):
 1. Favorites, shareable collections, Top 10 (can import pins)
 2. More data: asteroids & comets (JPL), all ~6,500 exoplanets, pulsars (ATNF), quasars (SDSS)
 3. Filters: planet type (estimated), temperature, number of suns, habitable zone, water detected (debated cases marked), moons (Solar System only)
-4. Sky-events timeline: eclipses, moon phases, conjunctions, oppositions, equinoxes/solstices (Astronomy Engine), meteor shower peaks; tap to jump time and camera
-5. Gravity views (owner to pick: space-fabric grid, falling dust, bent starlight around black holes)
+4. Sky-events timeline (owner, Nov 20: tonight's sky from the visitor's own location): eclipses, moon phases, conjunctions, oppositions, equinoxes/solstices (Astronomy Engine), meteor shower peaks; tap to jump time and camera
+5. Gravity view: space-fabric grid (owner's pick, Nov 20)
 6. Real galaxy maps (SDSS/DESI); share/record vertical clips; Gaia stars by the millions
 
 ## Build
