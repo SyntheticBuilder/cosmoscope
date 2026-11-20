@@ -5,7 +5,7 @@ import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { STORIES } from './stories.js';
 import { inWindow, newestRelease, shouldFlyIn, planetSubtitle, planetStory, teffToRGB, escapeHTML } from './newworlds.mjs';
-import { starCard, distanceFacts, fmtLy, SPECTRAL_HOOKS, HYG_SOURCE } from './catalog.mjs';
+import { starCard, distanceFacts, fmtLy, spectralHook, HYG_SOURCE } from './catalog.mjs';
 import { initSearch } from './search.js';
 import { segmentPairs, lineStars, meanDirection, perpendicular, constellationStats, constellationCard } from './constellations.mjs';
 
@@ -1118,7 +1118,7 @@ function starStory(idx) {
   const ly = n[2]; const sp = (n[3] || '').trim();
   const facts = distanceFacts(ly, new Date().getFullYear());
   if (sp) facts.push(`Spectral type ${sp}.`);
-  return { title: n[1], sub: `Star · ${fmtLy(ly)} light-years`, hook: SPECTRAL_HOOKS[sp[0]] || 'One of the stars around us.', facts, source: HYG_SOURCE };
+  return { title: n[1], sub: `Star · ${fmtLy(ly)} light-years`, hook: spectralHook(sp), facts, source: HYG_SOURCE };
 }
 // Thin pulsing ring around a catalog star while it is the focus (fixed pixel size: not to scale).
 const FOCUS_RING_FRAG = `
@@ -1579,7 +1579,7 @@ const TOUR = [
   ['trappist', null, 'sun', 3], ['kepler16', null, 'sun', 4], ['betelgeuse', null, 'sun', 0], ['orion', null, 'sun', 0], ['galaxy', null, 'sun', 0], ['sgra', null, 'sun', 6], ['andromeda', null, 'sun', 0], ['universe', null, 'sun', 0],
 ];
 let tour = null;
-$('#tourBtn').onclick = () => { if (tour) stopTour(); else startTour(); };
+$('#tourBtn').onclick = () => { if (tour) stopTour(); else { searchUI.close(); startTour(); } };
 function startTour() { time.ms = Date.now(); time.dir = 1; tour = { i: -1, next: 0 }; $('#tourBtn').classList.add('on'); $('#tourBtn').textContent = 'Stop tour'; tourStep(); }
 function stopTour() { if (!tour) return; tour = null; $('#tourBtn').classList.remove('on'); $('#tourBtn').textContent = 'Tour'; }
 function tourStep() {

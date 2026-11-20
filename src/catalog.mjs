@@ -326,6 +326,22 @@ export const SPECTRAL_HOOKS = {
   O: 'Blazing hot, blue, and short-lived.', B: 'Hot, blue-white, and young.', A: 'A brilliant white star.',
   F: 'A bright yellow-white star.', G: 'A star a lot like our Sun.', K: 'An orange star with a very long life ahead.', M: 'A cool red star.',
 };
+// Main-sequence-only claims (e.g. "long life ahead") are used only when the type says dwarf (V).
+// Giants get a giant hook; no luminosity class → colour only, no life-stage claim.
+const COLOUR_HOOKS = { O: 'A very hot blue star.', B: 'A hot blue-white star.', A: 'A brilliant white star.', F: 'A bright yellow-white star.', G: 'A yellow star.', K: 'An orange star.', M: 'A cool red star.' };
+export function luminosityClass(spect = '') {
+  const m = /^[OBAFGKM][0-9.]*(?:[-/][OBAFGKM]?[0-9.]*)?s*(Iab|Ia|Ib|III|II|IV|VI|V|I)?/.exec(String(spect).trim());
+  return m ? (m[1] || '') : '';
+}
+export function spectralHook(spect = '') {
+  const sp = String(spect).trim(); const cls = sp[0] || '';
+  if (!COLOUR_HOOKS[cls]) return sp[0] === 'D' ? 'A white dwarf: the leftover core of a star like the Sun.' : 'One of the stars around us.';
+  const lc = luminosityClass(sp);
+  if (/^I(a|ab|b)?$/.test(lc)) return 'A supergiant, one of the most luminous kinds of star.';
+  if (lc === 'II' || lc === 'III') return 'A giant star, swollen late in its life.';
+  if (lc === 'V') return SPECTRAL_HOOKS[cls];
+  return COLOUR_HOOKS[cls];
+}
 const SPECTRAL_WORDS = {
   O: 'a very hot blue star', B: 'a hot blue-white star', A: 'a white star', F: 'a yellow-white star',
   G: 'a yellow star, the same class as the Sun', K: 'an orange star', M: 'a cool red star',
@@ -371,7 +387,7 @@ export function starCard(row, nowYear = new Date().getFullYear()) {
   return {
     title,
     sub: row.ly != null ? `Star · ${fmtLy(row.ly)} light-years` : 'Star',
-    hook: SPECTRAL_HOOKS[cls] || 'One of the stars around us.',
+    hook: spectralHook(sp),
     facts, source: HYG_SOURCE,
   };
 }

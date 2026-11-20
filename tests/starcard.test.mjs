@@ -59,3 +59,18 @@ test('setPlaces swaps places without touching stars', () => {
   const r = search(idx, 'vega');
   assert.equal(r[0].type, 'place'); assert.equal(r[1].type, 'star');
 });
+
+test('spectralHook: life-stage claims only where the luminosity class supports them', async () => {
+  const { spectralHook, luminosityClass } = await import('../src/catalog.mjs');
+  assert.equal(luminosityClass('K2III'), 'III');
+  assert.equal(luminosityClass('M1-2Ia-Iab'), 'Ia');
+  assert.equal(luminosityClass('G2V'), 'V');
+  assert.equal(spectralHook('K2III'), 'A giant star, swollen late in its life.');      // Arcturus
+  assert.equal(spectralHook('K5III'), 'A giant star, swollen late in its life.');      // Aldebaran
+  assert.equal(spectralHook('M1-2Ia-Iab'), 'A supergiant, one of the most luminous kinds of star.'); // Betelgeuse
+  assert.equal(spectralHook('K5V'), 'An orange star with a very long life ahead.');    // 61 Cygni A
+  assert.equal(spectralHook('K0'), 'An orange star.');                                 // no class → colour only
+  assert.equal(spectralHook('DA2'), 'A white dwarf: the leftover core of a star like the Sun.');
+  assert.equal(spectralHook('sdM4'), 'One of the stars around us.');
+  assert.equal(spectralHook(''), 'One of the stars around us.');
+});

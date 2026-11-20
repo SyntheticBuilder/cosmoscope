@@ -30,7 +30,6 @@ Known limits:
 - Gliese 710 uses the Gaia DR3 flyby solution (0.052 pc in 1.29 Myr) instead of its older HYG motion, which would miss by ~1.3 ly
 - Orion, Crab, Pillars, Omega Centauri and Eta Carinae clouds and Mira's tail are illustrations (labeled); Eta Carinae orbit/sizes follow published models (approximate); Cygnus X-1 uses the 2021 radio distance (2.22 kpc), not HYG's; Sagittarius A* only shows S2 so far
 - Wide constellations don't fit the width of a phone screen
-- The hook wording for K-class stars doesn't suit giants
 - Betelgeuse dims between about 100 and 250 ly when zooming out
 - GitHub pauses the daily feed job after 60 days without repo activity — if the feed stops updating, re-enable the workflow in the repo's Actions tab
 
