@@ -1,6 +1,7 @@
 // Search & Atlas panel. Finds every place with a story and all 109,400 catalog stars by their real names.
 // The star name index (starindex.txt, ~4 MB) loads only when the panel first opens.
 import { parseStarIndex, buildSearchIndex, buildSearchIndexAsync, setPlaces, search, normalize, fmtLy } from './catalog.mjs';
+import { initSavedTab } from './savedtab.js';
 
 // Atlas categories, in display order. Empty ones are hidden.
 export const CATEGORIES = ['Solar System', 'Named stars', 'Star systems & stories', 'Exoplanets', 'Nebulae & clusters', 'Galaxies', 'Black holes', 'Constellations', 'Other places'];
@@ -23,6 +24,8 @@ const PLACES = {
   universe: ['Other places', 'Universe'],
 };
 const placeInfo = (id) => (id.startsWith('new:') ? ['Exoplanets', 'Exoplanet'] : PLACES[id] || ['Other places', 'Place']);
+// The kind shown on a saved view's subtitle ("Planet", "Star"), or null when it isn't a known place.
+const savedKind = (id) => (/^star:\d+$/.test(id) ? 'Star' : Object.prototype.hasOwnProperty.call(PLACES, id) ? PLACES[id][1] : null);
 
 const $ = (s) => document.querySelector(s);
 const lyText = (ly) => (ly != null && Number.isFinite(ly) ? `${fmtLy(ly)} light-years` : '');
@@ -117,7 +120,7 @@ export function initSearch(api) {
     if (tab === 'search') {
       if (loadState === 'loading') t = 'Loading star names…';
       else if (loadState === 'error') t = 'Star names could not load. Places are still searchable.';
-    } else if (atlasCat === 'Named stars' && !api.namedStars()) t = 'Stars are still loading…';
+    } else if (tab === 'atlas' && atlasCat === 'Named stars' && !api.namedStars()) t = 'Stars are still loading…';
     status.textContent = t;
     status.hidden = !t;
   }
@@ -228,13 +231,17 @@ export function initSearch(api) {
   }
 
   function setTab(t) {
+    if (tab === 'saved' && t !== 'saved') savedTab.leave();
     tab = t;
     for (const b of panel.querySelectorAll('[role=tab]')) {
       const on = b.dataset.tab === t;
       b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1;
     }
     panel.classList.toggle('atlas', t === 'atlas');
-    if (t === 'atlas') renderAtlas(); else { showStatus(); runSearch(); }
+    panel.classList.toggle('saved', t === 'saved');
+    if (t === 'atlas') renderAtlas();
+    else if (t === 'saved') { showStatus(); actions.clear(); savedTab.show(); }
+    else { showStatus(); runSearch(); }
   }
   const tabs = [...panel.querySelectorAll('[role=tab]')];
   for (const b of tabs) {
@@ -258,11 +265,13 @@ export function initSearch(api) {
 
   // ── open / close ──
   const isOpen = () => panel.classList.contains('open');
+  const savedTab = initSavedTab({ list, S: api.saved, close: () => close(), kindOf: savedKind, isActive: () => isOpen() && tab === 'saved' });
+  api.saved.onChange(() => savedTab.draw()); // draws only while the Saved tab is showing, and only if something changed
   // open(t): optionally on a given tab ('search', 'atlas', or any tab added later such as 'saved'); an unknown tab
   // keeps the current one.
   function open(t) {
     const want = typeof t === 'string' && [...panel.querySelectorAll('[role=tab]')].some((b) => b.dataset.tab === t) ? t : null;
-    if (isOpen()) { if (want && want !== tab) setTab(want); else input.focus(); return; }
+    if (isOpen()) { if (want && (want !== tab || want === 'saved')) setTab(want); else input.focus(); return; }
     if (want) tab = want;
     api.closeOthers();
     refreshPlaces();
@@ -282,7 +291,11 @@ export function initSearch(api) {
   $('#searchClose').onclick = close;
   // Esc closes search first (capture phase, so nothing else reacts to that Esc); "/" opens it.
   addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isOpen()) { e.preventDefault(); e.stopImmediatePropagation(); close(); return; }
+    if (e.key === 'Escape' && isOpen()) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (tab === 'saved' && savedTab.esc()) return; // a rename box or chooser closes first
+      close(); return;
+    }
     if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof Element && e.target.closest('input, textarea, select'))) {
       e.preventDefault();
       if (document.body.classList.contains('clean')) document.getElementById('cleanBtn')?.click(); // bring controls back first
@@ -296,6 +309,7 @@ export function initSearch(api) {
     refresh() {
       if (!isOpen()) return;
       const y = list.scrollTop;
+      if (tab === 'saved') { savedTab.draw(); return; }
       if (tab === 'atlas') renderAtlas(); else runSearch();
       list.scrollTop = y;
     },

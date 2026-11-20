@@ -178,6 +178,46 @@ input[type=range]{width:100%;accent-color:var(--gold)} input[type=range]:disable
 .spBtn:not(:disabled):active{border-color:var(--gold);color:var(--gold)}
 .spLetter{font-size:11px;letter-spacing:.24em;color:var(--gold);padding:12px 0 4px;font-weight:500}
 .spEmpty{font-size:13px;color:var(--dim);font-weight:300;padding:14px 2px;line-height:1.5}
+/* Saved tab */
+.svSec{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:14px 0 4px}
+.svSec h3{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--gold);font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:4px}
+.svSec h3:focus{outline:none}
+.svSec h3:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.svCount{color:var(--dim);font-weight:400;letter-spacing:.12em;margin-left:10px}
+.svRow{display:flex;flex-direction:column;gap:6px;padding:9px 0;border-top:1px solid var(--line)}
+.svMain{display:flex;align-items:center;gap:10px;min-height:44px;min-width:0}
+.svRank{flex:none;width:18px;text-align:right;font-size:13px;color:var(--gold);font-variant-numeric:tabular-nums}
+.svActs{display:flex;flex-wrap:wrap;gap:6px}
+.svIndent{padding-left:28px}
+.svBtn{flex:none;white-space:nowrap}
+.svBtn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.svIco{flex:none;width:36px;height:36px;border-radius:18px;display:grid;place-items:center;color:rgba(237,234,226,.82);border:1px solid var(--line);background:rgba(237,234,226,.05)}
+.svIco svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.svIco.on{color:var(--gold);border-color:rgba(255,210,122,.6)}
+.svIco.on svg path:first-child{fill:currentColor;fill-opacity:.85}
+.svIco:disabled{opacity:.28;cursor:default}
+.svIco:not(:disabled):active,.svIco:not(:disabled):hover{color:var(--star);border-color:rgba(237,234,226,.3)}
+.svClose{border-color:transparent;background:none}
+.svBar{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 10px}
+.svWarn{border-color:rgba(255,140,120,.7);color:#ffb3a3}
+.svShared{padding:0 0 8px}
+.svChooser{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 12px 0}
+.svChip{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.svChip svg{flex:none;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.svNew{color:var(--gold);border-color:rgba(255,210,122,.4)}
+.svColl{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;text-align:left;border-radius:8px}
+.svColl svg{flex:none;width:16px;height:16px;fill:none;stroke:var(--dim);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.svColl:active{background:rgba(255,210,122,.06)}
+.svHead{padding:10px 0 0}
+.svBack{padding-left:9px}
+.svInput{flex:1;min-width:0;height:36px;border-radius:18px;border:1px solid rgba(255,210,122,.5);background:rgba(237,234,226,.06);color:var(--star);font:inherit;font-size:16px;font-weight:300;padding:0 14px}
+.svNote{padding:6px 2px 10px}
+@media (max-width:819px),(pointer:coarse){
+  .svIco{width:44px;height:44px;border-radius:22px}
+  .svBtn,.svChip{height:44px;border-radius:22px}
+  .svInput{height:44px;border-radius:22px}
+  .spTabs button{height:44px}
+}
 @media (max-width:819px){
   #searchPanel{top:auto;bottom:0;left:0;right:0;width:auto;height:80vh;height:80dvh;max-height:none;border-radius:20px 20px 0 0;border-bottom:0;transform:translateY(16px);
     padding-left:calc(var(--sal) + 16px);padding-right:calc(var(--sar) + 16px)}
@@ -302,7 +342,7 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
   <ul id="newItems"></ul>
 </div>
 
-<div class="sheet" id="searchPanel" role="region" aria-label="Search and Atlas">
+<div class="sheet" id="searchPanel" role="region" aria-label="Search, Atlas and Saved">
   <div class="spHead">
     <input id="searchInput" type="search" placeholder="Search stars, planets, places" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Search stars, planets and places" aria-controls="spList">
     <button class="x" id="searchClose" aria-label="Close search"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
@@ -310,6 +350,7 @@ body:not(.ready) #loading{opacity:1} #loading{position:fixed;left:50%;top:calc(v
   <div class="spTabs" role="tablist" aria-label="Find by">
     <button role="tab" data-tab="search" aria-selected="true" aria-controls="spList">Search</button>
     <button role="tab" data-tab="atlas" aria-selected="false" aria-controls="spList" tabindex="-1">Atlas</button>
+    <button role="tab" data-tab="saved" aria-selected="false" aria-controls="spList" tabindex="-1">Saved</button>
   </div>
   <div id="atlasCats"></div>
   <div id="atlasLetters" aria-label="Jump to letter"></div>
