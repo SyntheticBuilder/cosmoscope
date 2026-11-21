@@ -190,7 +190,14 @@ input[type=range]{width:100%;accent-color:var(--gold)} input[type=range]:disable
 .svRank{flex:none;width:18px;text-align:right;font-size:13px;color:var(--gold);font-variant-numeric:tabular-nums}
 .svActs{display:flex;flex-wrap:wrap;gap:6px}
 .svIndent{padding-left:28px}
-.svMenu{padding:2px 0 6px}
+.svMenu{padding:2px 0 8px;gap:4px}
+.svLbl{flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:54px;padding:0 2px;background:none;border:0;color:rgba(237,234,226,.82);font:inherit}
+.svCirc{width:36px;height:36px;border-radius:18px;display:grid;place-items:center;border:1px solid var(--line);background:rgba(237,234,226,.05)}
+.svCirc svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.svWord{font-size:11px;letter-spacing:.03em;color:var(--dim);white-space:nowrap}
+.svLbl.on{color:var(--gold)}.svLbl.on .svCirc{border-color:rgba(255,210,122,.6)}.svLbl.on .svCirc svg path:first-child{fill:currentColor;fill-opacity:.85}
+.svLbl:disabled{opacity:.28;cursor:default}
+.svLbl:not(:disabled):hover .svCirc,.svLbl:not(:disabled):active .svCirc{color:var(--star);border-color:rgba(237,234,226,.3)}
 .svIco svg circle{fill:currentColor;stroke:none}
 .svBtn{flex:none;white-space:nowrap}
 .svBtn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
@@ -216,7 +223,7 @@ input[type=range]{width:100%;accent-color:var(--gold)} input[type=range]:disable
 .svInput{flex:1;min-width:0;height:36px;border-radius:18px;border:1px solid rgba(255,210,122,.5);background:rgba(237,234,226,.06);color:var(--star);font:inherit;font-size:16px;font-weight:300;padding:0 14px}
 .svNote{padding:6px 2px 10px}
 @media (max-width:819px),(pointer:coarse){
-  .svIco{width:44px;height:44px;border-radius:22px}
+  .svIco,.svCirc{width:44px;height:44px;border-radius:22px}
   .svBtn,.svChip{height:44px;border-radius:22px}
   .svInput{height:44px;border-radius:22px}
   .spTabs button{height:44px}

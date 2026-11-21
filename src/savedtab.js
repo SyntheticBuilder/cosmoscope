@@ -72,12 +72,14 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
   }
 
   // ── small builders ──
-  function button({ fk, label, text, icon, cls, onClick, disabled = false, on = false }) {
-    const b = el('button', cls || (icon && !text ? 'svIco' : 'pill spBtn svBtn'));
+  // word: a small caption under a round icon (the ⋯ menu's actions)
+  function button({ fk, label, text, icon, cls, onClick, disabled = false, on = false, word }) {
+    const b = el('button', cls || (word ? 'svLbl' : icon && !text ? 'svIco' : 'pill spBtn svBtn'));
     b.type = 'button';
-    if (icon) b.append(svg(icon));
+    if (word) { const c = el('span', 'svCirc'); c.append(svg(icon)); b.append(c, el('span', 'svWord', word)); }
+    else if (icon) b.append(svg(icon));
     if (text) b.append(text);
-    if (label) { b.setAttribute('aria-label', label); if (icon && !text) b.title = label; }
+    if (label) { b.setAttribute('aria-label', label); if (icon && !text && !word) b.title = label; }
     if (fk) b.dataset.fk = fk;
     if (on) b.classList.add('on');
     if (disabled) b.disabled = true;
@@ -168,7 +170,7 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
     const ti = top ? top.items.findIndex((x) => x.id === f.id) : -1;
     const acts = el('div', 'svActs svMenu');
     const fk = (b) => `fav:${f.id}:${b}`;
-    const addBtn = button({ fk: fk('add'), icon: 'plus', label: `Add ${f.name} to a collection`, on: chooser === f.id,
+    const addBtn = button({ fk: fk('add'), icon: 'plus', word: 'Collection', label: `Add ${f.name} to a collection`, on: chooser === f.id,
       onClick: () => {
         chooser = chooser === f.id ? null : f.id;
         const first = S.colls().find((c) => c.id !== TOP10_ID);
@@ -176,12 +178,12 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
       } });
     addBtn.setAttribute('aria-expanded', String(chooser === f.id));
     acts.append(
-      button({ fk: fk('ren'), icon: 'pencil', label: `Rename ${f.name}`, onClick: () => startEdit('fav', f.id, f.name, mk) }),
-      button({ fk: fk('top'), icon: 'star', on: ti >= 0, label: ti >= 0 ? `Remove ${f.name} from My Top 10` : `Add ${f.name} to My Top 10`,
+      button({ fk: fk('ren'), icon: 'pencil', word: 'Rename', label: `Rename ${f.name}`, onClick: () => startEdit('fav', f.id, f.name, mk) }),
+      button({ fk: fk('top'), icon: 'star', word: 'Top 10', on: ti >= 0, label: ti >= 0 ? `Remove ${f.name} from My Top 10` : `Add ${f.name} to My Top 10`,
         onClick: () => act([fk('top')], () => (ti >= 0 ? S.removeFromColl(TOP10_ID, ti) : S.addTo(TOP10_ID, f.id))) }),
       addBtn,
-      button({ fk: fk('share'), icon: 'share', label: `Share ${f.name}`, onClick: () => S.share(f) }),
-      button({ fk: fk('del'), icon: 'trash', label: `Delete ${f.name}`,
+      button({ fk: fk('share'), icon: 'share', word: 'Share', label: `Share ${f.name}`, onClick: () => S.share(f) }),
+      button({ fk: fk('del'), icon: 'trash', word: 'Delete', label: `Delete ${f.name}`,
         onClick: () => act(focusAfterRemove(favs.map((x) => x.id), i, (id) => `fav:${id}:go`, 'sec:favs', 'first'), () => {
           if (chooser === f.id) chooser = null;
           menu = null;
@@ -217,9 +219,9 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
       moreButton(key("more"), it.name, [i === 0 ? key("down") : key("up"), key("rm")]));
     const acts = el('div', 'svActs svMenu' + (rank ? ' svIndent' : ''));
     acts.append(
-      button({ fk: key('up'), icon: 'up', label: `Move ${it.name} up`, disabled: i === 0, onClick: () => act([key('up'), key('down')], () => S.moveInColl(c.id, i, -1)) }),
-      button({ fk: key('down'), icon: 'down', label: `Move ${it.name} down`, disabled: i === n - 1, onClick: () => act([key('down'), key('up')], () => S.moveInColl(c.id, i, 1)) }),
-      button({ fk: key('rm'), icon: 'x', label: `Remove ${it.name} from ${c.name}`,
+      button({ fk: key('up'), icon: 'up', word: 'Up', label: `Move ${it.name} up`, disabled: i === 0, onClick: () => act([key('up'), key('down')], () => S.moveInColl(c.id, i, -1)) }),
+      button({ fk: key('down'), icon: 'down', word: 'Down', label: `Move ${it.name} down`, disabled: i === n - 1, onClick: () => act([key('down'), key('up')], () => S.moveInColl(c.id, i, 1)) }),
+      button({ fk: key('rm'), icon: 'x', word: 'Remove', label: `Remove ${it.name} from ${c.name}`,
         onClick: () => act(focusAfterRemove(c.items.map((x) => x.id), i, (id) => `it:${c.id}:${id}:go`, c.id === TOP10_ID ? 'sec:top10' : 'coll:back', 'first'),
           () => { menu = null; S.removeFromColl(c.id, i, true); }) }),
     );
