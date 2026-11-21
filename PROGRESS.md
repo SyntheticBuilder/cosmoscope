@@ -27,7 +27,7 @@ Done:
 - Free zoom: scroll zooms toward the cursor, pinch toward where the fingers started (only once the fingers really spread or close, so two-finger pans don't zoom). The spot you zoom to rides along with the object you were looking at, so it stays in view while time runs. The camera never goes inside a planet, moon, the Sun or a story star. Zooming out, +/− keys and double-tap stay centred. Pinch release no longer triggers the double-tap zoom
 - Pins: "📍 Pin" chip saves the current view as A to I (up to 9, gaps refilled); tap to fly back (to the object, or to the same spot next to it, wherever it has moved); press and hold (touch), right-click or Delete to remove; kept on this device (localStorage)
 - Betelgeuse no longer dims between about 100 and 250 ly when zooming out
-- Favorites: ★ Save chip and a ☆ on fact cards (keeps a place or your exact view); collections; My Top 10; a Saved tab in search; collection tours; shared links (`#s=1.…`: the list is inside the link, nothing goes to a server). Kept on this device
+- Favorites: ★ Save chip and a ☆ on fact cards (keeps a place or your exact view); collections; My Top 10; a Saved tab in search; collection tours; shared links (`#s=1.…`: the list is inside the link, nothing goes to a server). Kept on this device. Deletes show an Undo button for 6 s (Ctrl/Cmd+Z too); Saved rows are one line, with a ⋯ button for Rename, Top 10, Collection, Share, Delete (and up/down/remove in lists)
 - Live new-planets feed: planets NASA confirmed in the last 90 days ("✦ N NEW" pill, list, pulsing markers at NASA's positions, cards with sources, one fly-in per new batch; cached for offline, silent if unavailable)
 
 Known limits:
@@ -41,8 +41,6 @@ Known limits:
 - Pins are saved per browser/device only (no sharing yet); they save the place, not the time. Pins on a catalog star depend on the star list's order, and pins on a constellation or a new-world planet fall back to the saved spot if that data hasn't loaded
 - With 9 pins, the scale chips (Earth, Solar System...) start off-screen on phones; scroll the chip row
 - Shared links are frozen copies: editing a list later doesn't change links already sent
-- Deleting a favorite is one tap with no undo
-- Long Saved lists get tall (two lines per row)
 - Small polish left from review: Space can re-press a button you tabbed to and then clicked; in the rare copy-the-link fallback, keys stay inactive until you tap elsewhere; the card ☆ tells screen readers "pressed"; a saved star past the catalog end waits for search to load names; "Stop tour" pushes the full-screen button to a third row on phones (as with the built-in Tour)
 - GitHub pauses the daily feed job after 60 days without repo activity — if the feed stops updating, re-enable the workflow in the repo's Actions tab
 

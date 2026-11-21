@@ -1564,6 +1564,7 @@ addEventListener('keydown', e => {
   if (e.target instanceof Element && e.target.closest('input, textarea, select')) return; // typing in the search box
   // Space presses a button that has keyboard focus; after a mouse click (focus stays on the button) it still pauses
   const onControl = e.target === kbFocusEl && e.target instanceof Element && !!e.target.closest('button, [role=tab], a');
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z' && undoFn) { e.preventDefault(); runUndo(); return; }
   if (e.key === '+' || e.key === '=') zoomBy(-0.25); if (e.key === '-') zoomBy(0.25);
   if (e.key === ' ' && !onControl) { togglePause(); e.preventDefault(); }
 });
@@ -1767,7 +1768,7 @@ const savedAPI = {
   renameColl: (collId, name) => renameColl(collId, name),
   removeColl: collId => removeColl(collId),
   moveInColl: (collId, i, delta) => editColl(collId, c => moveItem(c, i, delta)),
-  removeFromColl: (collId, i) => editColl(collId, c => removeItem(c, i)),
+  removeFromColl: (collId, i, undo = false) => removeFromColl(collId, i, undo),
   share: x => shareSaved(x),
   startListTour: items => startListTour(items),
   keepPin: pinId => keepPin(pinId),
@@ -2065,11 +2066,27 @@ $('#aboutBtn').onclick = () => { searchUI.close(); $('#about').classList.add('op
 $('#aboutClose').onclick = () => $('#about').classList.remove('open');
 
 // toast
-let toastT = 0;
-function toast(msg, ms = 3200) { const t = $('#toast'); t.classList.remove('link'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
+let toastT = 0, undoFn = null; // undoFn: what the Undo button in the toast does (null: none)
+function toast(msg, ms = 3200) { undoFn = null; const t = $('#toast'); t.classList.remove('link', 'act'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
 // A toast holding a link in a read-only field (selectable: the toast takes pointer events only in this case).
+// A toast with an Undo button (also Ctrl/Cmd+Z while it shows). Any other toast replaces it and drops the undo.
+function toastUndo(msg, fn, ms = 6000) {
+  const t = $('#toast'); t.textContent = ''; t.classList.remove('link');
+  const p = document.createElement('span'); p.textContent = msg;
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'toastUndo'; b.textContent = 'Undo';
+  b.onclick = e => { e.stopPropagation(); runUndo(); };
+  t.append(p, b); t.classList.add('on', 'act');
+  undoFn = fn;
+  clearTimeout(toastT); toastT = setTimeout(() => { t.classList.remove('on', 'act'); undoFn = null; }, ms);
+}
+function runUndo() {
+  const f = undoFn; if (!f) return false;
+  undoFn = null; clearTimeout(toastT); $('#toast').classList.remove('on', 'act');
+  f(); return true;
+}
 function toastLink(url) {
-  const t = $('#toast'); t.textContent = '';
+  undoFn = null;
+  const t = $('#toast'); t.textContent = ''; t.classList.remove('act');
   const p = document.createElement('span'); p.textContent = 'Copy this link:';
   const i = document.createElement('input'); i.type = 'text'; i.readOnly = true; i.value = url; i.setAttribute('aria-label', 'Link to share');
   i.addEventListener('focus', () => i.select());
@@ -2183,10 +2200,11 @@ function persist(which) {
 }
 const STORE_FAIL = "This browser can't keep saved views.";
 // End of every change: tell the Saved tab, then show the action's toast (if any) with the one-time storage warning.
-function done(msg = '', ms = 3200) {
+function done(msg = '', ms = 3200, undo = null) {
   const warn = saved.warnNow; saved.warnNow = false;
   savedChanged();
   if (warn) toast(msg ? msg + ' · ' + STORE_FAIL : STORE_FAIL, 5000);
+  else if (msg && undo) toastUndo(msg, undo);
   else if (msg) toast(msg, ms);
 }
 function addFav(fav) {
@@ -2258,8 +2276,15 @@ function renameFav(id, name) {
 }
 function removeFav(id) {
   const f = saved.favs.find(x => x.id === id); if (!f) return false;
+  const at = saved.favs.indexOf(f);
   saved.favs = saved.favs.filter(x => x !== f);
-  persist('favs'); done(`Removed ‘${f.name}’`); return true;
+  persist('favs'); done(`Removed ‘${f.name}’`, 3200, () => {
+    if (saved.favs.some(x => x.id === f.id)) return;
+    if (saved.favs.length >= LIMITS.favs) { toast(`You have ${LIMITS.favs} favorites: delete one first.`); return; }
+    saved.favs = [...saved.favs.slice(0, at), f, ...saved.favs.slice(at)];
+    persist('favs'); done(`Restored ‘${f.name}’`);
+  });
+  return true;
 }
 function addToColl(collId, favId) {
   const c = saved.colls.find(x => x.id === collId), f = findFav(favId); if (!c || !f) return false;
@@ -2283,8 +2308,31 @@ function renameColl(collId, name) {
 }
 function removeColl(collId) {
   const c = saved.colls.find(x => x.id === collId); if (!c || c.id === TOP10_ID) return false;
+  const at = saved.colls.indexOf(c);
   saved.colls = saved.colls.filter(x => x !== c);
-  persist('colls'); done(`Removed ‘${c.name}’`); return true;
+  persist('colls'); done(`Removed ‘${c.name}’`, 3200, () => {
+    if (saved.colls.some(x => x.id === c.id)) return;
+    if (saved.colls.length >= LIMITS.colls) { toast(`Up to ${LIMITS.colls} collections: delete one first.`); return; }
+    const n = { ...c, name: uniqueName(c.name, saved.colls.map(x => x.name)) };
+    saved.colls = [...saved.colls.slice(0, at), n, ...saved.colls.slice(at)];
+    persist('colls'); done(`Restored ‘${n.name}’`);
+  });
+  return true;
+}
+// Take item i out of a collection; with undo, the toast offers to put it back where it was.
+function removeFromColl(collId, i, undo) {
+  const c = saved.colls.find(x => x.id === collId); const it = c?.items[i];
+  if (!it || !editColl(collId, x => removeItem(x, i))) return false;
+  if (!undo) return true;
+  toastUndo(`Removed ‘${it.name}’ from ${c.name}`, () => {
+    const now = saved.colls.find(x => x.id === collId); if (!now || now.items.some(x => x.id === it.id)) return;
+    const cap = now.id === TOP10_ID ? LIMITS.top10 : LIMITS.items;
+    if (now.items.length >= cap) { toast(now.id === TOP10_ID ? 'Top 10 is full: remove one first.' : `${now.name} is full (${LIMITS.items} places): remove one first.`); return; }
+    const items = [...now.items.slice(0, i), it, ...now.items.slice(i)];
+    saved.colls = saved.colls.map(x => x === now ? { ...now, items } : x);
+    persist('colls'); done(`Back in ${now.name}`);
+  });
+  return true;
 }
 function editColl(collId, fn) {
   const c = saved.colls.find(x => x.id === collId); if (!c) return false;

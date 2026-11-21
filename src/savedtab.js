@@ -31,6 +31,7 @@ const ICONS = { // static markup only (no data goes in here)
   x: '<path d="M7 7l10 10M17 7L7 17"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
   next: '<path d="M9 5l7 7-7 7"/>',
+  more: '<circle cx="5.5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/>',
 };
 function svg(name) {
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -54,6 +55,7 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
   let openColl = null;     // id of the collection shown on its own, else the overview
   let editing = null;      // { kind: 'fav' | 'coll', id, draft, sel: [start, end] | null }
   let chooser = null;      // id of the favorite whose "add to a collection" chooser is open
+  let menu = null;         // focus key of the ⋯ button whose row of actions is open (one at a time)
   let confirmDel = null, confirmTimer = 0; // collection waiting for a second tap on Delete
   let lastSig = null;      // what was drawn last; an unchanged onChange draws nothing
   let pending = null;      // focus keys to try after the next draw (after an action)
@@ -80,6 +82,14 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
     if (on) b.classList.add('on');
     if (disabled) b.disabled = true;
     b.onclick = (e) => { e.stopPropagation(); if (!b.disabled) onClick(); };
+    return b;
+  }
+  // The ⋯ button that shows or hides a row's actions. mk is its focus key; first is the key to focus on opening.
+  function moreButton(mk, name, first) {
+    const open = menu === mk;
+    const b = button({ fk: mk, icon: 'more', label: `More for ${name}`, on: open,
+      onClick: () => { const was = menu === mk; menu = was ? null : mk; if (was && chooser) chooser = null; act(was ? [mk] : [].concat(first, mk), () => {}); } });
+    b.setAttribute('aria-expanded', String(open));
     return b;
   }
   function textBlock(name, subtitle) {
@@ -125,7 +135,7 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
   }
   function go(fav) { close(); S.restore(fav); }
   function startEdit(kind, id, name, fk) {
-    chooser = null;
+    chooser = null; if (kind === 'fav') menu = null;
     editing = { kind, id, draft: name, sel: null, back: fk };
     pending = ['edit']; draw(true);
   }
@@ -153,8 +163,10 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
     const isEd = editing?.kind === 'fav' && editing.id === f.id;
     main.append(isEd ? renameInput(f.name) : textBlock(f.name, sub(f)),
       button({ fk: `fav:${f.id}:go`, text: 'Go', label: `Go to ${f.name}`, cls: 'pill spBtn svBtn svGo', onClick: () => go(f) }));
+    const mk = `fav:${f.id}:more`;
+    if (!isEd) main.append(moreButton(mk, f.name, `fav:${f.id}:ren`));
     const ti = top ? top.items.findIndex((x) => x.id === f.id) : -1;
-    const acts = el('div', 'svActs');
+    const acts = el('div', 'svActs svMenu');
     const fk = (b) => `fav:${f.id}:${b}`;
     const addBtn = button({ fk: fk('add'), icon: 'plus', label: `Add ${f.name} to a collection`, on: chooser === f.id,
       onClick: () => {
@@ -164,7 +176,7 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
       } });
     addBtn.setAttribute('aria-expanded', String(chooser === f.id));
     acts.append(
-      button({ fk: fk('ren'), icon: 'pencil', label: `Rename ${f.name}`, onClick: () => startEdit('fav', f.id, f.name, fk('ren')) }),
+      button({ fk: fk('ren'), icon: 'pencil', label: `Rename ${f.name}`, onClick: () => startEdit('fav', f.id, f.name, mk) }),
       button({ fk: fk('top'), icon: 'star', on: ti >= 0, label: ti >= 0 ? `Remove ${f.name} from My Top 10` : `Add ${f.name} to My Top 10`,
         onClick: () => act([fk('top')], () => (ti >= 0 ? S.removeFromColl(TOP10_ID, ti) : S.addTo(TOP10_ID, f.id))) }),
       addBtn,
@@ -172,12 +184,14 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
       button({ fk: fk('del'), icon: 'trash', label: `Delete ${f.name}`,
         onClick: () => act(focusAfterRemove(favs.map((x) => x.id), i, (id) => `fav:${id}:go`, 'sec:favs', 'first'), () => {
           if (chooser === f.id) chooser = null;
+          menu = null;
           S.remove(f.id);
         }) }),
     );
-    li.append(main, acts);
+    li.append(main);
+    if (menu === mk) li.append(acts);
     frag.append(li);
-    if (chooser === f.id) chooserRow(frag, f);
+    if (menu === mk && chooser === f.id) chooserRow(frag, f);
   }
   function chooserRow(frag, f) {
     const li = el('li', 'svChooser');
@@ -199,16 +213,18 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
     const key = (b) => `it:${c.id}:${it.id}:${b}`;
     if (rank) main.append(el('span', 'svRank', String(i + 1)));
     main.append(textBlock(it.name, sub(it)),
-      button({ fk: key('go'), text: 'Go', label: `Go to ${it.name}`, cls: 'pill spBtn svBtn svGo', onClick: () => go(it) }));
-    const acts = el('div', 'svActs' + (rank ? ' svIndent' : ''));
+      button({ fk: key('go'), text: 'Go', label: `Go to ${it.name}`, cls: 'pill spBtn svBtn svGo', onClick: () => go(it) }),
+      moreButton(key("more"), it.name, [i === 0 ? key("down") : key("up"), key("rm")]));
+    const acts = el('div', 'svActs svMenu' + (rank ? ' svIndent' : ''));
     acts.append(
       button({ fk: key('up'), icon: 'up', label: `Move ${it.name} up`, disabled: i === 0, onClick: () => act([key('up'), key('down')], () => S.moveInColl(c.id, i, -1)) }),
       button({ fk: key('down'), icon: 'down', label: `Move ${it.name} down`, disabled: i === n - 1, onClick: () => act([key('down'), key('up')], () => S.moveInColl(c.id, i, 1)) }),
       button({ fk: key('rm'), icon: 'x', label: `Remove ${it.name} from ${c.name}`,
         onClick: () => act(focusAfterRemove(c.items.map((x) => x.id), i, (id) => `it:${c.id}:${id}:go`, c.id === TOP10_ID ? 'sec:top10' : 'coll:back', 'first'),
-          () => S.removeFromColl(c.id, i)) }),
+          () => { menu = null; S.removeFromColl(c.id, i, true); }) }),
     );
-    li.append(main, acts);
+    li.append(main);
+    if (menu === key('more')) li.append(acts);
     frag.append(li);
   }
 
@@ -253,7 +269,7 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
         for (const c of others) {
           const li = el('li', 'svRow svCollItem');
           const b = button({ fk: `coll:${c.id}`, cls: 'svColl', label: `Open ${c.name}, ${places(c.items.length)}`,
-            onClick: () => { overviewY = list.scrollTop; openColl = c.id; chooser = null; scrollTo = 0; pending = ['coll:back']; draw(true); } });
+            onClick: () => { overviewY = list.scrollTop; openColl = c.id; chooser = null; menu = null; scrollTo = 0; pending = ['coll:back']; draw(true); } });
           b.append(textBlock(c.name, places(c.items.length)), svg('next'));
           li.append(b); frag.append(li);
         }
@@ -273,7 +289,7 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
   }
   function collView(frag, c, colls) {
     const head = el('li', 'svHead');
-    const back = () => { const id = c.id; openColl = null; editing = null; setConfirm(null); scrollTo = overviewY; pending = [`coll:${id}`, 'sec:colls']; draw(true); };
+    const back = () => { const id = c.id; openColl = null; editing = null; menu = null; setConfirm(null); scrollTo = overviewY; pending = [`coll:${id}`, 'sec:colls']; draw(true); };
     head.append(button({ fk: 'coll:back', icon: 'back', text: 'Saved', label: 'Back to Saved', cls: 'pill spBtn svBtn svBack', onClick: back }));
     frag.append(head);
     if (editing?.kind === 'coll' && editing.id === c.id) {
@@ -351,15 +367,16 @@ export function initSavedTab({ list, S, toast, close, kindOf, isActive }) {
 
   return {
     // Shown (tab picked or panel opened): start from the overview.
-    show() { openColl = null; editing = null; chooser = null; setConfirm(null); pending = null; scrollTo = 0; lastSig = null; draw(true); },
+    show() { openColl = null; editing = null; chooser = null; menu = null; setConfirm(null); pending = null; scrollTo = 0; lastSig = null; draw(true); },
     draw: () => draw(false),
     // Esc inside the tab: closes the rename box or the chooser first. → true if it used the Esc.
     esc() {
       if (editing) { cancelEdit(); return true; }
       if (chooser) { const id = chooser; chooser = null; pending = [`fav:${id}:add`]; draw(true); return true; }
+      if (menu) { const mk = menu; menu = null; pending = [mk]; draw(true); return true; }
       if (confirmDel) { setConfirm(null); draw(true); return true; }
       return false;
     },
-    leave() { editing = null; chooser = null; setConfirm(null); lastSig = null; },
+    leave() { editing = null; chooser = null; menu = null; setConfirm(null); lastSig = null; },
   };
 }
