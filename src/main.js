@@ -9,6 +9,7 @@ import { starCard, starNames, distanceFacts, fmtLy, spectralHook, HYG_SOURCE } f
 import { initSearch } from './search.js';
 import { segmentPairs, lineStars, meanDirection, perpendicular, constellationStats, constellationCard } from './constellations.mjs';
 import { focusPlaneOffset, zoomTowardOffset, pinchEngaged, backOutOfSphere, loadPins, savePins, nextPinLetter, MAX_PINS } from './zoom.mjs';
+import { COUNTER_URL, DWELL_MS, OPTOUT_KEY, visitMemory, optedOut, shouldCount, sendVisit, fetchTop, utcDay } from './trending.mjs';
 import { FAV_KEY, COLL_KEY, TOP10_ID, TOP10_NAME, LIMITS, newId, validFavorite, loadFavs, saveFavs, loadColls, saveColls, autoName, cleanName, uniqueName, addItem, moveItem, removeItem, encodeShare, decodeShare } from './favorites.mjs';
 
 // ───────────────────────── units & helpers ─────────────────────────
@@ -1458,7 +1459,7 @@ function updateCamera(now) {
     cam.target.copy(a.fromPos).lerp(tgt, pu);
     cam.logD = lerp(a.fromLog, a.toLog, e) + a.bump * Math.sin(Math.PI * u);
     if (a.toQ && !drag.active) cam.q.slerpQuaternions(a.fromQ, a.toQ, e);
-    if (u >= 1) cam.anim = null;
+    if (u >= 1) { cam.anim = null; arrived(a.id); }
   } else {
     cam.target.copy(tgt);
   }
@@ -1556,9 +1557,9 @@ function zoomAt(dLog, clientX, clientY) {
 }
 // How the focused element got focus: by keyboard (Tab, or code moving focus after a key) or by pointer. Chrome turns
 // :focus-visible on for a clicked button as soon as any key is pressed, so it can't tell these apart at keydown.
-let lastInput = 'pointer', kbFocusEl = null;
-addEventListener('pointerdown', () => { lastInput = 'pointer'; }, true);
-addEventListener('keydown', () => { lastInput = 'key'; }, true);
+let lastInput = 'pointer', kbFocusEl = null, hadInput = false; // hadInput: the visitor has touched, clicked or typed (the opening view isn't a visit)
+addEventListener('pointerdown', () => { lastInput = 'pointer'; hadInput = true; }, true);
+addEventListener('keydown', () => { lastInput = 'key'; hadInput = true; }, true);
 addEventListener('focusin', e => { kbFocusEl = lastInput === 'key' ? e.target : null; }, true);
 addEventListener('keydown', e => {
   if (e.target instanceof Element && e.target.closest('input, textarea, select')) return; // typing in the search box
@@ -1779,6 +1780,7 @@ const savedAPI = {
 };
 const searchUI = initSearch({
   saved: savedAPI,
+  trending: { enabled: () => !!counterUrl, top: range => fetchTop(counterUrl, range) }, // read lazily: counterUrl is set further down
   toast: (m) => toast(m),
   namesLoaded: () => resolveLookups(),
   // every named place you can fly to (dynamic star: and free-point stops excluded)
@@ -2056,6 +2058,36 @@ bindRange('#trailRange', 'trailRange', v => v < 0.35 ? 'Few stars' : v < 0.75 ? 
 bindRange('#sunSpeed', 'sunSpeed', v => v >= 0.99 ? 'Real speed' : `Slowed ${Math.round(1 / v)}×`);
 $('#optLabels').onchange = e => settings.labels = e.target.checked;
 $('#optOrbits').onchange = e => settings.orbits = e.target.checked;
+// ───────────────────────── trending: anonymous visit counting ─────────────────────────
+// A visit = a flight that ends on a place (not during a tour), then 5 s there. Sent once per place per day.
+const lsafe = (() => { try { return localStorage; } catch { return null; } })();
+// The counter's address. On a local test server it can be pointed elsewhere with localStorage 'cosmo.counterUrl'.
+const counterUrl = (() => {
+  try { if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return lsafe?.getItem('cosmo.counterUrl') || COUNTER_URL; } catch { }
+  return COUNTER_URL;
+})();
+let visitT = 0;
+function arrived(id) {
+  clearTimeout(visitT);
+  const touring = !!tour;
+  visitT = setTimeout(() => {
+    if (cam.focusId !== id || cam.anim) return; // flew on, or moved away
+    const ok = shouldCount({ id, free: !!focusables[id]?.free, touring: touring || !!tour, hadInput, optOut: optedOut(lsafe), gpc: navigator.globalPrivacyControl === true });
+    if (!ok || !counterUrl) return;
+    const mem = visitMemory(lsafe, utcDay(Date.now()));
+    if (mem.has(id)) return;
+    mem.add(id);
+    sendVisit(counterUrl, id);
+  }, DWELL_MS);
+}
+{
+  const box = $('#optCount');
+  if (!counterUrl) box.closest('label').hidden = true;
+  else {
+    box.checked = !optedOut(lsafe);
+    box.onchange = () => { try { if (box.checked) lsafe?.removeItem(OPTOUT_KEY); else lsafe?.setItem(OPTOUT_KEY, '0'); } catch { } };
+  }
+}
 $('#optCon').onchange = e => {
   settings.conLines = e.target.checked;
   if (settings.conLines) loadConstellations().catch(() => { settings.conLines = false; e.target.checked = false; toast('Constellation lines could not load.'); });

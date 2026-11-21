@@ -1,6 +1,7 @@
 // Search & Atlas panel. Finds every place with a story and all 109,400 catalog stars by their real names.
 // The star name index (starindex.txt, ~4 MB) loads only when the panel first opens.
-import { parseStarIndex, buildSearchIndex, buildSearchIndexAsync, setPlaces, search, normalize, fmtLy } from './catalog.mjs';
+import { parseStarIndex, buildSearchIndex, buildSearchIndexAsync, setPlaces, search, normalize, fmtLy, starNames } from './catalog.mjs';
+import { RANGES, RANGE_LABELS, MIN_VISITS } from './trending.mjs';
 import { initSavedTab } from './savedtab.js';
 
 // Atlas categories, in display order. Empty ones are hidden.
@@ -54,6 +55,7 @@ const byName = (a, b) => {
  *   namesLoaded()   called once the star name index has loaded
  *   toast(msg)      shows a short message at the bottom of the screen
  *   saved           favorites, collections and shared lists (see the favorites section in main.js)
+ *   trending        { enabled() → bool, top(range) → Promise<[{ id, n }] | null> } (most visited places)
  */
 export function initSearch(api) {
   const panel = $('#searchPanel'), input = $('#searchInput'), list = $('#spList'), status = $('#spStatus');
@@ -114,6 +116,7 @@ export function initSearch(api) {
     }
     showStatus();
     if (tab === 'search') runSearch();
+    else if (tab === 'atlas' && atlasCat === TREND && isOpen()) renderAtlas();
     if (loadState === 'ready') { try { api.namesLoaded?.(); } catch (err) { console.warn(err); } }
   }
   function showStatus() {
@@ -203,11 +206,79 @@ export function initSearch(api) {
     if (cat === 'Named stars') return (api.namedStars() || []).map(([idx, name, ly, spect]) => starEntry(idx, name, ly, (spect || '').trim()));
     return [...placeByKey.values()].filter((e) => e.category === cat);
   }
+  // ── Trending (first in the Atlas) ──
+  // Shown only while the counter answers: any failure hides it for this visit and the Atlas works as before.
+  const TREND = 'Trending', TREND_TTL = 5 * 60 * 1000;
+  const trend = { ok: null, range: 'day', cache: new Map(), loading: null }; // ok: null = not asked yet, false = hidden
+  function loadTrend(range) {
+    const hit = trend.cache.get(range);
+    if (hit && Date.now() - hit.t < TREND_TTL) return;
+    if (trend.loading === range) return;
+    trend.loading = range;
+    api.trending.top(range).then((places) => {
+      if (trend.loading === range) trend.loading = null;
+      if (places) { trend.ok = true; trend.cache.set(range, { t: Date.now(), places }); }
+      else if (!trend.cache.size) trend.ok = false; // never answered: hide it
+      if (isOpen() && tab === 'atlas' && (atlasCat === TREND || trend.ok === false)) renderAtlas();
+    });
+  }
+  // The row for a counted id, from the app's own data only. 'wait': its names haven't loaded yet. null: unknown.
+  function trendEntry(id) {
+    const star = /^star:(\d+)$/.exec(id);
+    if (star) {
+      const idx = Number(star[1]), owner = api.storyForStar(idx);
+      if (owner && placeByKey.has('p:' + owner)) return placeByKey.get('p:' + owner);
+      if (loadState === 'loading' || loadState === 'idle') return 'wait';
+      const row = loadState === 'ready' ? index.rows[idx] : null;
+      const name = row && starNames(row)[0];
+      return name ? starEntry(idx, name, row.ly, row.spect) : null;
+    }
+    if (id.startsWith('con:')) return placeByKey.get('c:' + id.slice(4)) || (extraEntries.length ? null : 'wait');
+    return placeByKey.get('p:' + id) || null;
+  }
+  function renderTrending() {
+    actions.clear();
+    const frag = document.createDocumentFragment();
+    const bar = document.createElement('li'); bar.className = 'spTrendBar';
+    bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', 'Most visited over');
+    for (const r of RANGES) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip spCat'; b.textContent = RANGE_LABELS[r];
+      b.setAttribute('aria-pressed', String(r === trend.range)); b.dataset.range = r;
+      b.onclick = () => { trend.range = r; loadTrend(r); renderAtlas(); list.querySelector(`[data-range="${r}"]`)?.focus({ preventScroll: true }); };
+      bar.append(b);
+    }
+    frag.append(bar);
+    const hit = trend.cache.get(trend.range);
+    const note = (t) => { const li = document.createElement('li'); li.className = 'spEmpty'; li.textContent = t; frag.append(li); };
+    if (!hit) note('Loading…');
+    else {
+      let shown = 0, waiting = false;
+      const seen = new Set();
+      for (const { id, n } of hit.places) {
+        const e = trendEntry(id);
+        if (e === 'wait') { waiting = true; continue; }
+        if (!e || seen.has(e.key)) continue;
+        seen.add(e.key); shown++;
+        const li = rowEl({ ...e, sub: `${n.toLocaleString('en-US')} visits` });
+        const rank = document.createElement('span'); rank.className = 'spRank'; rank.textContent = String(shown);
+        li.prepend(rank);
+        frag.append(li);
+      }
+      if (waiting) note('Loading star names…');
+      else if (!shown) note(`Not enough visits yet. Places show up here after ${MIN_VISITS} visits.`);
+    }
+    list.textContent = '';
+    list.append(frag);
+  }
+
   function renderAtlas() {
     const counts = new Map(CATEGORIES.map((c) => [c, atlasEntries(c).length]));
+    const trendOn = trend.ok !== false && !!api.trending?.enabled?.();
+    if (trendOn) { counts.set(TREND, 1); loadTrend(trend.range); }
+    if (atlasCat === null && trendOn) atlasCat = TREND;
     if (!atlasCat || !counts.get(atlasCat)) atlasCat = CATEGORIES.find((c) => counts.get(c)) || null;
     cats.textContent = '';
-    for (const c of CATEGORIES) {
+    for (const c of trendOn ? [TREND, ...CATEGORIES] : CATEGORIES) {
       const n = counts.get(c);
       if (!n && !(c === 'Named stars' && !api.namedStars())) continue; // hide empty categories (keep Named stars while loading)
       const b = document.createElement('button'); b.className = 'chip spCat'; b.textContent = c;
@@ -217,6 +288,8 @@ export function initSearch(api) {
       b.onclick = () => { atlasCat = c; renderAtlas(); [...cats.children].find((x) => x.dataset.cat === c)?.focus({ preventScroll: true }); };
       cats.append(b);
     }
+    panel.classList.toggle('trend', atlasCat === TREND);
+    if (atlasCat === TREND) { renderTrending(); showStatus(); return; }
     const entries = atlasCat ? atlasEntries(atlasCat).sort(byName) : [];
     const have = new Set(entries.map((e) => letterOf(e.name)));
     letters.textContent = '';

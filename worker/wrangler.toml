@@ -1,0 +1,17 @@
+name = "cosmoscope-trending"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+send_metrics = false
+
+# Daily cleanup of old counts and "already counted" marks (03:17 UTC)
+[triggers]
+crons = ["17 3 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cosmoscope-trending"
+database_id = "b4f97115-f8d4-4644-aa80-66d1bee4c055"
+
+[observability]
+enabled = false
