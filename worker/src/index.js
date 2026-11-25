@@ -1,19 +1,20 @@
 // Cosmoscope Trending counter (Cloudflare Worker + D1).
 //   POST /visit  body {"id": "<place id>"}  → 204 (counted or already counted today), 400 bad id, 429 too many today
 //   GET  /top?range=day|week|month           → {"places":[{"id","n"}]}  (top 10 with at least 3 visits)
+//        Lists are worked out as of the latest 6-hour mark (00, 06, 12, 18 UTC, like the NASA feed) and stay the
+//        same until the next one: Today = the 24 hours before that mark, Week/Month = the 7/30 days before it.
 // Only real places are counted: the app's story stops, catalog stars, the 88 constellations, and the planets
 // in the site's own new_planets.json.
 // Privacy: no IP address is stored. A visit leaves a scrambled mark made from (secret, today's random key, network,
 // place), and a per-network count for the daily cap that is kept apart from the places. Today's random key and all
 // marks are deleted by the daily cleanup, after which the marks can't be recomputed by anyone.
-import { validId, RANGES, MIN_VISITS, TOP_N } from '../../src/trending.mjs';
+import { validId, RANGES, MIN_VISITS, TOP_N, UPDATE_MS, updateMark } from '../../src/trending.mjs';
 import { STORIES } from '../../src/stories.js';
 import CONSTELLATIONS from '../../public/constellations.json' with { type: 'json' };
 
 const ALLOWED = [/^https:\/\/syntheticbuilder\.github\.io$/, /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/];
 const MAX_BODY = 200;
 const PER_PERSON_DAY = 300; // most places one person can add in a day (stops one script from filling the day)
-const TOP_TTL_MS = 5 * 60 * 1000;
 const NEW_PLANETS_URL = 'https://syntheticbuilder.github.io/cosmoscope/new_planets.json';
 const NEW_TTL_MS = 60 * 60 * 1000;
 const CON_ABBRS = new Set(CONSTELLATIONS.map((c) => c.abbr));
@@ -91,10 +92,16 @@ export function d1Store(db) {
         db.prepare('INSERT INTO counts_d (day, id, n) VALUES (?1, ?2, 1) ON CONFLICT (day, id) DO UPDATE SET n = n + 1').bind(dayStr, id),
       ]);
     },
-    async top(range, now) {
+    // The list as of `asOf` (a 6-hour mark): only visits before it, so every server gets the same answer.
+    async top(range, asOf) {
+      const h0 = hour(asOf);
       const q = range === 'day'
-        ? db.prepare('SELECT id, SUM(n) AS n FROM counts_h WHERE hour > ?1 GROUP BY id HAVING SUM(n) >= ?2 ORDER BY n DESC, id LIMIT ?3').bind(hour(now) - 24, MIN_VISITS, TOP_N)
-        : db.prepare('SELECT id, SUM(n) AS n FROM counts_d WHERE day > ?1 GROUP BY id HAVING SUM(n) >= ?2 ORDER BY n DESC, id LIMIT ?3').bind(day(now - (range === 'week' ? 7 : 30) * 86400000), MIN_VISITS, TOP_N);
+        ? db.prepare('SELECT id, SUM(n) AS n FROM counts_h WHERE hour >= ?1 AND hour < ?2 GROUP BY id HAVING SUM(n) >= ?3 ORDER BY n DESC, id LIMIT ?4').bind(h0 - 24, h0, MIN_VISITS, TOP_N)
+        // whole days before the mark's day, plus that day's hours before the mark
+        : db.prepare(`SELECT id, SUM(n) AS n FROM (SELECT id, n FROM counts_d WHERE day > ?1 AND day < ?2
+            UNION ALL SELECT id, n FROM counts_h WHERE hour >= ?3 AND hour < ?4)
+            GROUP BY id HAVING SUM(n) >= ?5 ORDER BY n DESC, id LIMIT ?6`)
+          .bind(day(asOf - (range === 'week' ? 7 : 30) * 86400000), day(asOf), hour(Date.parse(day(asOf))), h0, MIN_VISITS, TOP_N);
       const { results } = await q.all();
       return (results || []).map((r) => ({ id: r.id, n: Number(r.n) }));
     },
@@ -141,11 +148,13 @@ export async function handle(request, env, { store, now = Date.now(), topCache =
     if (url.pathname === '/top' && request.method === 'GET') {
       const range = url.searchParams.get('range');
       if (!RANGES.includes(range)) return reply(400, origin, null);
+      const mark = updateMark(now);
       const hit = topCache.get(range);
       let places;
-      if (hit && now - hit.t < TOP_TTL_MS) places = hit.places;
-      else { places = await store.top(range, now); topCache.set(range, { t: now, places }); }
-      return reply(200, origin, { places }, { 'cache-control': 'public, max-age=300' });
+      if (hit && hit.mark === mark) places = hit.places;
+      else { places = await store.top(range, mark); topCache.set(range, { mark, places }); }
+      const age = Math.max(60, Math.ceil((mark + UPDATE_MS - now) / 1000)); // browsers keep it until the next mark
+      return reply(200, origin, { places }, { 'cache-control': `public, max-age=${age}` });
     }
     return reply(404, origin, null);
   } catch (err) {
@@ -154,7 +163,7 @@ export async function handle(request, env, { store, now = Date.now(), topCache =
   }
 }
 
-const memo = new Map(); // per-instance cache of top lists (5 minutes)
+const memo = new Map(); // per-instance cache of top lists (until the next 6-hour mark)
 export default {
   fetch: (request, env) => handle(request, env, { store: d1Store(env.DB), topCache: memo }),
   scheduled: (event, env, ctx) => ctx.waitUntil(d1Store(env.DB).cleanup(Date.now())),

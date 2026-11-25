@@ -19,7 +19,7 @@ Start hovering over Earth, then pinch or scroll outward through the Solar System
 - **New worlds.** Planets added to NASA's Exoplanet Archive in the last 90 days, refreshed every 6 hours, with a one-time fly-in to the newest find.
 - **Favorites and collections.** Tap ★ Save to keep a place or your exact view, or the ☆ on any card. Group them into collections, and build a My Top 10. The Saved tab in search lists it all, and a collection can play as its own tour.
 - **Shared links.** Share a collection or your Top 10 as a link. The list travels inside the link, so nothing is sent to a server.
-- **Trending.** The Atlas opens on the places people visit most in the last 24 hours, this week and this month. A visit counts when you fly somewhere and stay 5 seconds; each network (a home or a phone) counts once per place per day, and a place needs 3 visits to show. It's anonymous (no IP addresses are kept), honors Global Privacy Control, and can be turned off in Settings.
+- **Trending.** The Atlas opens on the places people visit most in the last 24 hours, this week and this month, updated every 6 hours (00, 06, 12 and 18 UTC, the same times as the new-planets feed). A visit counts when you fly somewhere and stay 5 seconds; each network (a home or a phone) counts once per place per day, and a place needs 3 visits to show. It's anonymous (no IP addresses are kept), honors Global Privacy Control, and can be turned off in Settings.
 - **Time controls**, from live up to a million years per second, forwards or backwards.
 
 Anything drawn bigger or brighter than real life is labeled "not to scale" on screen.

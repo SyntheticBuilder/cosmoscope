@@ -1,7 +1,7 @@
 // Search & Atlas panel. Finds every place with a story and all 109,400 catalog stars by their real names.
 // The star name index (starindex.txt, ~4 MB) loads only when the panel first opens.
 import { parseStarIndex, buildSearchIndex, buildSearchIndexAsync, setPlaces, search, normalize, fmtLy, starNames } from './catalog.mjs';
-import { RANGES, RANGE_LABELS, MIN_VISITS } from './trending.mjs';
+import { RANGES, RANGE_LABELS, MIN_VISITS, updateMark } from './trending.mjs';
 import { initSavedTab } from './savedtab.js';
 
 // Atlas categories, in display order. Empty ones are hidden.
@@ -137,7 +137,7 @@ export function initSearch(api) {
     const sb = document.createElement('span'); sb.className = 'spSub'; sb.textContent = e.sub && e.sub.toLowerCase().startsWith(e.kind.toLowerCase()) ? e.kind + e.sub.slice(e.kind.length) : join(e.kind, e.sub); // no "Star cluster · star cluster"
     txt.append(nm, sb);
     const acts = document.createElement('div'); acts.className = 'spActs';
-    const fly = document.createElement('button'); fly.className = 'pill spBtn'; fly.dataset.act = 'fly'; fly.textContent = 'Fly there';
+    const fly = document.createElement('button'); fly.className = 'pill spBtn'; fly.dataset.act = 'fly'; fly.textContent = '🚀 Fly there';
     fly.setAttribute('aria-label', `Fly to ${e.name}`);
     if (e.flyDisabled?.()) { fly.disabled = true; fly.title = 'Stars are still loading'; }
     const rd = document.createElement('button'); rd.className = 'pill spBtn'; rd.dataset.act = 'read'; rd.textContent = 'Read';
@@ -208,11 +208,11 @@ export function initSearch(api) {
   }
   // ── Trending (first in the Atlas) ──
   // Shown only while the counter answers: any failure hides it for this visit and the Atlas works as before.
-  const TREND = 'Trending', TREND_TTL = 5 * 60 * 1000;
+  const TREND = 'Trending';
   const trend = { ok: null, range: 'day', cache: new Map(), loading: null, failed: new Set() }; // ok: null = not asked yet, false = hidden
   function loadTrend(range) {
     const hit = trend.cache.get(range);
-    if (hit && Date.now() - hit.t < TREND_TTL) return;
+    if (hit && updateMark(hit.t) === updateMark(Date.now())) return; // same 6-hour update
     if (trend.loading === range) return;
     trend.loading = range;
     api.trending.top(range).then((places) => {
@@ -283,7 +283,7 @@ export function initSearch(api) {
     for (const c of trendOn ? [TREND, ...CATEGORIES] : CATEGORIES) {
       const n = counts.get(c);
       if (!n && !(c === 'Named stars' && !api.namedStars())) continue; // hide empty categories (keep Named stars while loading)
-      const b = document.createElement('button'); b.className = 'chip spCat'; b.textContent = c;
+      const b = document.createElement('button'); b.className = 'chip spCat'; b.textContent = c === TREND ? '✦ ' + c : c;
       b.setAttribute('aria-pressed', String(c === atlasCat));
       b.dataset.cat = c;
       // re-rendering replaces the chips, so put focus back on the new one

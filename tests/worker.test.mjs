@@ -17,10 +17,15 @@ function memStore() {
       h.set(hr + '|' + id, (h.get(hr + '|' + id) || 0) + 1);
       d.set(dayStr + '|' + id, (d.get(dayStr + '|' + id) || 0) + 1);
     },
-    async top(range, now) {
-      const sums = new Map();
-      if (range === 'day') { for (const [k, n] of h) { const [hr, id] = [Number(k.split('|')[0]), k.slice(k.indexOf('|') + 1)]; if (hr > hour(now) - 24) sums.set(id, (sums.get(id) || 0) + n); } }
-      else { const from = day(now - (range === 'week' ? 7 : 30) * 86400000); for (const [k, n] of d) { const [ds, id] = [k.slice(0, 10), k.slice(11)]; if (ds > from) sums.set(id, (sums.get(id) || 0) + n); } }
+    async top(range, asOf) {
+      const sums = new Map(), plus = (id, n) => sums.set(id, (sums.get(id) || 0) + n), h0 = hour(asOf);
+      const hours = (from) => { for (const [k, n] of h) { const hr = Number(k.split('|')[0]); if (hr >= from && hr < h0) plus(k.slice(k.indexOf('|') + 1), n); } };
+      if (range === 'day') hours(h0 - 24);
+      else {
+        const from = day(asOf - (range === 'week' ? 7 : 30) * 86400000), to = day(asOf);
+        for (const [k, n] of d) { const ds = k.slice(0, 10); if (ds > from && ds < to) plus(k.slice(11), n); }
+        hours(hour(Date.parse(to)));
+      }
       return [...sums].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 10).map(([id, n]) => ({ id, n }));
     },
   };
@@ -114,7 +119,8 @@ test('top lists: ranges, at least 3 visits, at most 10', async () => {
   const store = memStore();
   const many = async (id, n, now) => { for (let i = 0; i < n; i++) await handle(visit(id, { ip: '10.0.0.' + i }), env, { store, now }); };
   await many('saturn', 5, NOW); await many('mars', 2, NOW); await many('vega', 4, NOW - 3 * 86400000); await many('sgra', 6, NOW - 20 * 86400000);
-  const get = async (range) => (await (await handle(top(range), env, { store, now: NOW, topCache: new Map() })).json()).places;
+  const LATER = NOW + 6 * 3600000; // the next 6-hour mark (18:00 UTC)
+  const get = async (range) => (await (await handle(top(range), env, { store, now: LATER, topCache: new Map() })).json()).places;
   assert.deepEqual(await get('day'), [{ id: 'saturn', n: 5 }]);
   assert.deepEqual(await get('week'), [{ id: 'saturn', n: 5 }, { id: 'vega', n: 4 }]);
   assert.deepEqual(await get('month'), [{ id: 'sgra', n: 6 }, { id: 'saturn', n: 5 }, { id: 'vega', n: 4 }]);
@@ -123,13 +129,21 @@ test('top lists: ranges, at least 3 visits, at most 10', async () => {
   assert.equal((await handle(top('year'), env, { store, now: NOW })).status, 400);
 });
 
-test('top lists are cached for 5 minutes', async () => {
-  const store = memStore(); let calls = 0; const s = { ...store, top: async () => { calls++; return []; } };
-  const cache = new Map();
-  await handle(top('day'), env, { store: s, now: NOW, topCache: cache });
-  await handle(top('day'), env, { store: s, now: NOW + 60000, topCache: cache });
+test('top lists change only at the 6-hour marks (00, 06, 12, 18 UTC)', async () => {
+  const store = memStore();
+  const many = async (id, n, now) => { for (let i = 0; i < n; i++) await handle(visit(id, { ip: '10.0.1.' + i }), env, { store, now }); };
+  const get = async (now, cache = new Map()) => {
+    const r = await handle(top('day'), env, { store, now, topCache: cache });
+    return { places: (await r.json()).places, age: Number(r.headers.get('cache-control').match(/max-age=(\d+)/)[1]) };
+  };
+  await many('saturn', 3, NOW + 3600000); // 13:00, after the 12:00 mark
+  assert.deepEqual((await get(NOW + 2 * 3600000)).places, []); // 14:00: still the 12:00 list
+  assert.equal((await get(NOW + 2 * 3600000)).age, 4 * 3600); // browsers keep it until 18:00
+  assert.deepEqual((await get(NOW + 6 * 3600000)).places, [{ id: 'saturn', n: 3 }]); // 18:00: shows up
+  let calls = 0; const s = { ...store, top: async () => { calls++; return []; } }; const cache = new Map();
+  for (const t of [0, 1, 5.9]) await handle(top('day'), env, { store: s, now: NOW + t * 3600000, topCache: cache });
   assert.equal(calls, 1);
-  await handle(top('day'), env, { store: s, now: NOW + 6 * 60000, topCache: cache });
+  await handle(top('day'), env, { store: s, now: NOW + 6 * 3600000, topCache: cache });
   assert.equal(calls, 2);
 });
 

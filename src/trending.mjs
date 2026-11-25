@@ -11,6 +11,9 @@ export const MIN_VISITS = 3;
 export const TOP_N = 10;
 export const RANGES = ['day', 'week', 'month'];
 export const RANGE_LABELS = { day: 'Today', week: 'Week', month: 'Month' };
+// Lists update every 6 hours, at 00, 06, 12 and 18 UTC (the same times as the NASA new-planets feed).
+export const UPDATE_MS = 6 * 3600 * 1000;
+export const updateMark = (ms) => Math.floor(ms / UPDATE_MS) * UPDATE_MS;
 
 // The shapes of ids the counter accepts. The app only shows ids it can name itself, so a shape check is enough here.
 export function validId(id) {
