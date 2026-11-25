@@ -1384,7 +1384,7 @@ function flyTo(id, dist, dur, lookFrom, up) { // up: optional screen-up directio
   const span = Math.abs(toLog - fromLog) + bump * 2;
   let toQ = null;
   if (lookFrom) toQ = lookQ(lookFrom, up);
-  cam.anim = { id, fromPos, fromLog, toLog, bump, t0: performance.now(), dur: dur ?? clamp(1200 + span * 260, 1400, 5200), fromQ: cam.q.clone(), toQ };
+  cam.anim = { id, byUser: hadInput, fromPos, fromLog, toLog, bump, t0: performance.now(), dur: dur ?? clamp(1200 + span * 260, 1400, 5200), fromQ: cam.q.clone(), toQ };
   cam.focusId = id;
   showCard(f.story ? (typeof f.story === 'string' ? STORIES[f.story] : f.story) : null, id);
 }
@@ -1459,7 +1459,7 @@ function updateCamera(now) {
     cam.target.copy(a.fromPos).lerp(tgt, pu);
     cam.logD = lerp(a.fromLog, a.toLog, e) + a.bump * Math.sin(Math.PI * u);
     if (a.toQ && !drag.active) cam.q.slerpQuaternions(a.fromQ, a.toQ, e);
-    if (u >= 1) { cam.anim = null; arrived(a.id); }
+    if (u >= 1) { cam.anim = null; arrived(a.id, a.byUser); }
   } else {
     cam.target.copy(tgt);
   }
@@ -2067,12 +2067,12 @@ const counterUrl = (() => {
   return COUNTER_URL;
 })();
 let visitT = 0;
-function arrived(id) {
+function arrived(id, byUser) {
   clearTimeout(visitT);
   const touring = !!tour;
   visitT = setTimeout(() => {
     if (cam.focusId !== id || cam.anim) return; // flew on, or moved away
-    const ok = shouldCount({ id, free: !!focusables[id]?.free, touring: touring || !!tour, hadInput, optOut: optedOut(lsafe), gpc: navigator.globalPrivacyControl === true });
+    const ok = shouldCount({ id, free: !!focusables[id]?.free, touring: touring || !!tour, hadInput: byUser, optOut: optedOut(lsafe), gpc: navigator.globalPrivacyControl === true });
     if (!ok || !counterUrl) return;
     const mem = visitMemory(lsafe, utcDay(Date.now()));
     if (mem.has(id)) return;
@@ -2085,6 +2085,10 @@ function arrived(id) {
   if (!counterUrl) box.closest('label').hidden = true;
   else {
     box.checked = !optedOut(lsafe);
+    if (navigator.globalPrivacyControl === true) { // the browser asks sites not to track: never counted, so show it off
+      box.checked = false; box.disabled = true;
+      box.before('(off: your browser asks sites not to track) ');
+    }
     box.onchange = () => { try { if (box.checked) lsafe?.removeItem(OPTOUT_KEY); else lsafe?.setItem(OPTOUT_KEY, '0'); } catch { } };
   }
 }

@@ -29,6 +29,7 @@ Done:
 - Betelgeuse no longer dims between about 100 and 250 ly when zooming out
 - Favorites: ★ Save chip and a ☆ on fact cards (keeps a place or your exact view); collections; My Top 10; a Saved tab in search; collection tours; shared links (`#s=1.…`: the list is inside the link, nothing goes to a server). Kept on this device. Deletes show an Undo button for 6 s (Ctrl/Cmd+Z too); Saved rows are one line, with a ⋯ button that opens labeled actions (Rename, Top 10, Collection, Share, Delete; Up, Down, Remove in lists)
 - Live new-planets feed: planets NASA confirmed in the last 90 days ("✦ N NEW" pill, list, pulsing markers at NASA's positions, cards with sources, one fly-in per new batch; cached for offline, silent if unavailable)
+- Trending (Nov 24): the Atlas opens on a Trending list (Today / Week / Month, top 10, 3 visits minimum). A visit = a flight that ends and stays 5 s, not during a tour, after you've touched or clicked, counted once per place per day per network (IPv6: per /64); "Today" = last 24 hours; only real places accepted; anonymous (no IPs stored, daily random key deleted each day), off switch in Settings, honors Global Privacy Control. Counter: Cloudflare Worker + D1 at cosmoscope-trending.cosmoscope-app.workers.dev (`worker/`); Trending is hidden if it can't be reached
 
 Known limits:
 - Milky Way, other galaxies (and their far-away glows) and the cosmic web are illustrations (labeled); the faint star-dust background is decoration, not real stars
@@ -43,14 +44,14 @@ Known limits:
 - Shared links are frozen copies: editing a list later doesn't change links already sent
 - Small polish left from review: Space can re-press a button you tabbed to and then clicked; in the rare copy-the-link fallback, keys stay inactive until you tap elsewhere; the card ☆ tells screen readers "pressed"; a saved star past the catalog end waits for search to load names; "Stop tour" pushes the full-screen button to a third row on phones (as with the built-in Tour)
 - GitHub pauses the daily feed job after 60 days without repo activity — if the feed stops updating, re-enable the workflow in the repo's Actions tab
+- Trending: zooming within 5 s of arriving switches to a free view, so that visit isn't counted; people sharing one network (offices, some phone carriers) count as one; new-planet visits only count once the counter can read the site's new_planets.json; catalog stars are counted by their position in the star list, so re-ordering the catalog would mix up old counts; lists update every 5 minutes; someone scripting fake visits could use up the free plan's daily writes (counting then pauses until the next day); two test visits (Saturn, TOI-4324 b) on Nov 24 are in the real counts
 
 Next ideas (in order):
-1. Trending (part 2): most visited today / this week / this month, via a small free Cloudflare counter the owner sets up; a visit = flying to a named place and staying 5 s or more, counted once per person per place per day; anonymous
-2. More data: asteroids & comets (JPL), all ~6,500 exoplanets, pulsars (ATNF), quasars (SDSS)
-3. Filters: planet type (estimated), temperature, number of suns, habitable zone, water detected (debated cases marked), moons (Solar System only)
-4. Sky-events timeline (owner, Nov 20: tonight's sky from the visitor's own location): eclipses, moon phases, conjunctions, oppositions, equinoxes/solstices (Astronomy Engine), meteor shower peaks; tap to jump time and camera
-5. Gravity view: space-fabric grid (owner's pick, Nov 20)
-6. Real galaxy maps (SDSS/DESI); share/record vertical clips; Gaia stars by the millions
+1. More data: asteroids & comets (JPL), all ~6,500 exoplanets, pulsars (ATNF), quasars (SDSS)
+2. Filters: planet type (estimated), temperature, number of suns, habitable zone, water detected (debated cases marked), moons (Solar System only)
+3. Sky-events timeline (owner, Nov 20: tonight's sky from the visitor's own location): eclipses, moon phases, conjunctions, oppositions, equinoxes/solstices (Astronomy Engine), meteor shower peaks; tap to jump time and camera
+4. Gravity view: space-fabric grid (owner's pick, Nov 20)
+5. Real galaxy maps (SDSS/DESI); share/record vertical clips; Gaia stars by the millions
 
 ## Build
 npm install && bash build.sh  → dist/ (static files, host anywhere)

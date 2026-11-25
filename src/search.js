@@ -209,7 +209,7 @@ export function initSearch(api) {
   // ── Trending (first in the Atlas) ──
   // Shown only while the counter answers: any failure hides it for this visit and the Atlas works as before.
   const TREND = 'Trending', TREND_TTL = 5 * 60 * 1000;
-  const trend = { ok: null, range: 'day', cache: new Map(), loading: null }; // ok: null = not asked yet, false = hidden
+  const trend = { ok: null, range: 'day', cache: new Map(), loading: null, failed: new Set() }; // ok: null = not asked yet, false = hidden
   function loadTrend(range) {
     const hit = trend.cache.get(range);
     if (hit && Date.now() - hit.t < TREND_TTL) return;
@@ -217,8 +217,9 @@ export function initSearch(api) {
     trend.loading = range;
     api.trending.top(range).then((places) => {
       if (trend.loading === range) trend.loading = null;
-      if (places) { trend.ok = true; trend.cache.set(range, { t: Date.now(), places }); }
+      if (places) { trend.ok = true; trend.failed.delete(range); trend.cache.set(range, { t: Date.now(), places }); }
       else if (!trend.cache.size) trend.ok = false; // never answered: hide it
+      else trend.failed.add(range);
       if (isOpen() && tab === 'atlas' && (atlasCat === TREND || trend.ok === false)) renderAtlas();
     });
   }
@@ -233,7 +234,8 @@ export function initSearch(api) {
       const name = row && starNames(row)[0];
       return name ? starEntry(idx, name, row.ly, row.spect) : null;
     }
-    if (id.startsWith('con:')) return placeByKey.get('c:' + id.slice(4)) || (extraEntries.length ? null : 'wait');
+    // constellations load alongside the star names (and re-render the list when they arrive); unknown after that
+    if (id.startsWith('con:')) return placeByKey.get('c:' + id.slice(4)) || (!extraEntries.length && (loadState === 'idle' || loadState === 'loading') ? 'wait' : null);
     return placeByKey.get('p:' + id) || null;
   }
   function renderTrending() {
@@ -250,7 +252,7 @@ export function initSearch(api) {
     frag.append(bar);
     const hit = trend.cache.get(trend.range);
     const note = (t) => { const li = document.createElement('li'); li.className = 'spEmpty'; li.textContent = t; frag.append(li); };
-    if (!hit) note('Loading…');
+    if (!hit) note(trend.failed.has(trend.range) ? "Couldn't load right now. Tap the range again to retry." : 'Loading…');
     else {
       let shown = 0, waiting = false;
       const seen = new Set();

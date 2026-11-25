@@ -2,7 +2,7 @@
 // A visit = a flight that ends on a place, then 5 s there. Counted once per place per day, anonymously.
 
 // The counter's address (no trailing slash). Empty: Trending is off.
-export const COUNTER_URL = '';
+export const COUNTER_URL = 'https://cosmoscope-trending.cosmoscope-app.workers.dev';
 export const VISIT_KEY = 'cosmo.visits';      // { day: 'YYYY-MM-DD', ids: [...] } — what this browser already counted today
 export const OPTOUT_KEY = 'cosmo.countVisits'; // '0' = don't count my visits
 export const DWELL_MS = 5000;
@@ -11,8 +11,6 @@ export const MIN_VISITS = 3;
 export const TOP_N = 10;
 export const RANGES = ['day', 'week', 'month'];
 export const RANGE_LABELS = { day: 'Today', week: 'Week', month: 'Month' };
-const HOURS = { day: 24, week: 168, month: 720 };
-export const rangeHours = (r) => HOURS[r] ?? null;
 
 // The shapes of ids the counter accepts. The app only shows ids it can name itself, so a shape check is enough here.
 export function validId(id) {

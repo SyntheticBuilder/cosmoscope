@@ -19,6 +19,7 @@ Start hovering over Earth, then pinch or scroll outward through the Solar System
 - **New worlds.** Planets added to NASA's Exoplanet Archive in the last 90 days, refreshed every 6 hours, with a one-time fly-in to the newest find.
 - **Favorites and collections.** Tap ★ Save to keep a place or your exact view, or the ☆ on any card. Group them into collections, and build a My Top 10. The Saved tab in search lists it all, and a collection can play as its own tour.
 - **Shared links.** Share a collection or your Top 10 as a link. The list travels inside the link, so nothing is sent to a server.
+- **Trending.** The Atlas opens on the places people visit most in the last 24 hours, this week and this month. A visit counts when you fly somewhere and stay 5 seconds; each network (a home or a phone) counts once per place per day, and a place needs 3 visits to show. It's anonymous (no IP addresses are kept), honors Global Privacy Control, and can be turned off in Settings.
 - **Time controls**, from live up to a million years per second, forwards or backwards.
 
 Anything drawn bigger or brighter than real life is labeled "not to scale" on screen.
@@ -44,6 +45,9 @@ npx esbuild --servedir=dist --serve=8080          # open http://localhost:8080
 
 ## How it's published
 A GitHub Actions workflow (`.github/workflows/site.yml`) runs on every push to `main` and every 6 hours. It builds the site, fetches the newest planets from NASA, and deploys to GitHub Pages.
+
+## Trending counter
+The Trending list comes from a small Cloudflare Worker with a D1 database, in `worker/` (free plan). It keeps only visit counts per place (hourly counts for 26 hours, daily counts for 32 days), plus one-way scrambled "already counted today" marks and a per-network count for the daily cap of 300 places. Those are made with a random key that changes every day; the daily cleanup (03:17 UTC) deletes yesterday's key and marks, so they can't be worked back out. Only real places are counted: story stops, catalog stars, the 88 constellations and the planets in the site's `new_planets.json`. To redeploy it: `cd worker && npx wrangler deploy`. The app's counter address is `COUNTER_URL` in `src/trending.mjs`; if it's empty, Trending is hidden.
 
 ## License
 Code: MIT (see `LICENSE`). Imagery and data belong to their sources listed above (NASA imagery is public domain; HYG catalog is CC BY-SA).

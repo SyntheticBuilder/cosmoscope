@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validId, visitMemory, shouldCount, fetchTop, sendVisit, rangeHours, VISIT_KEY, optedOut, OPTOUT_KEY } from '../src/trending.mjs';
+import { validId, visitMemory, shouldCount, fetchTop, sendVisit, VISIT_KEY, optedOut, OPTOUT_KEY } from '../src/trending.mjs';
+import { STORIES } from '../src/stories.js';
 
 const mem = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), m }; };
 const res = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => (typeof body === 'string' ? JSON.parse(body) : body) });
@@ -11,8 +12,8 @@ test('validId accepts the four shapes only', () => {
     '__proto__', 'a'.repeat(25), 'new:' + 'x'.repeat(41), null, 42, {}, ['earth']]) assert.ok(!validId(id), String(id));
 });
 
-test('rangeHours', () => {
-  assert.equal(rangeHours('day'), 24); assert.equal(rangeHours('week'), 168); assert.equal(rangeHours('month'), 720); assert.equal(rangeHours('year'), null);
+test('every story stop has an id the counter accepts', () => {
+  for (const id of Object.keys(STORIES)) assert.ok(validId(id), id);
 });
 
 test('visitMemory keeps only today and survives broken storage', () => {

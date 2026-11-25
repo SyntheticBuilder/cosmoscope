@@ -1,17 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handle, day, hour } from '../worker/src/index.js';
+import { handle, day, hour, network, knownId } from '../worker/src/index.js';
 
 // A memory store with the same behaviour as d1Store.
 function memStore() {
-  const seen = new Map(), h = new Map(), d = new Map();
+  const seen = new Map(), caps = new Map(), keys = new Map(), h = new Map(), d = new Map();
   return {
-    seen, h, d,
+    seen, caps, keys, h, d,
+    async daySecret(dayStr) { if (!keys.has(dayStr)) keys.set(dayStr, 'k' + Math.random()); return keys.get(dayStr); },
     async mark(dayStr, key, pk, cap) {
-      const used = [...seen.values()].filter((v) => v.day === dayStr && v.pk === pk).length;
-      if (used >= cap) return 'cap';
+      if ((caps.get(dayStr + '|' + pk) || 0) >= cap) return 'cap';
       const k = dayStr + '|' + key; if (seen.has(k)) return 'dup';
-      seen.set(k, { day: dayStr, pk }); return 'new';
+      seen.set(k, dayStr); caps.set(dayStr + '|' + pk, (caps.get(dayStr + '|' + pk) || 0) + 1); return 'new';
     },
     async add(hr, dayStr, id) {
       h.set(hr + '|' + id, (h.get(hr + '|' + id) || 0) + 1);
@@ -44,10 +44,47 @@ test('a visit counts once per person per place per day', async () => {
   assert.equal(store.d.get('2026-11-21|saturn'), 1);
 });
 
-test('no IP address is stored', async () => {
+test('no IP address is stored, and marks hold no visitor-wide value', async () => {
   const store = memStore();
   await handle(visit('earth', { ip: '203.0.113.77' }), env, { store, now: NOW });
-  assert.ok(!JSON.stringify([...store.seen]).includes('203.0.113.77'));
+  await handle(visit('mars', { ip: '203.0.113.77' }), env, { store, now: NOW });
+  const all = JSON.stringify([...store.seen, ...store.caps]);
+  assert.ok(!all.includes('203.0.113.77'));
+  assert.equal(store.caps.size, 1); // one per-network count, kept apart from the places
+  assert.equal(new Set([...store.seen.keys()]).size, 2);
+});
+
+test('a new day uses a new random key', async () => {
+  const store = memStore();
+  await handle(visit('earth'), env, { store, now: NOW });
+  await handle(visit('earth'), env, { store, now: NOW + 86400000 });
+  assert.equal(store.keys.size, 2);
+  assert.notEqual(store.keys.get('2026-11-20'), store.keys.get('2026-11-21'));
+  const [a, b] = [...store.seen.keys()].map((k) => k.split('|')[1]);
+  assert.notEqual(a, b);
+});
+
+test('only places the app can show are counted', async () => {
+  const store = memStore();
+  const newNames = async () => new Set(['TOI-4324 b']);
+  const st = async (id) => (await handle(visit(id), env, { store, now: NOW, newNames })).status;
+  for (const id of ['saturn', 'sgra', 'universe', 'star:42', 'con:Ori', 'con:UMa', 'new:TOI-4324 b']) assert.equal(await st(id), 204, id);
+  for (const id of ['zz1', 'notaplace', 'con:Xyz', 'con:ori', 'new:Fake 1 b', 'star:109400']) assert.equal(await st(id), 400, id);
+  assert.equal(await knownId('new:TOI-4324 b', async () => new Set()), false); // feed not readable: refuse
+});
+
+test('a whole IPv6 /64 counts as one network', async () => {
+  assert.equal(network('203.0.113.7'), '203.0.113.7');
+  assert.equal(network('2001:db8:1:2:aaaa::1'), '2001:db8:1:2::/64');
+  assert.equal(network('2001:0DB8:0001:0002:ffff:1:2:3'), '2001:db8:1:2::/64');
+  assert.equal(network('2001:db8::5'), '2001:db8:0:0::/64');
+  assert.equal(network('::1'), '0:0:0:0::/64');
+  const store = memStore();
+  await handle(visit('saturn', { ip: '2001:db8:1:2::1' }), env, { store, now: NOW });
+  await handle(visit('saturn', { ip: '2001:db8:1:2::9999' }), env, { store, now: NOW });
+  assert.equal(store.d.get('2026-11-20|saturn'), 1);
+  await handle(visit('saturn', { ip: '2001:db8:1:3::1' }), env, { store, now: NOW });
+  assert.equal(store.d.get('2026-11-20|saturn'), 2);
 });
 
 test('bad bodies and ids are refused and nothing is stored', async () => {
